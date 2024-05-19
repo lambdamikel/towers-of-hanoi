@@ -1,7 +1,15 @@
-# tower of Hanoi - recursive - work for up to 4 disks!
-# (C) 2024 LambdaMikel
-# Work with PicoRAM 2019 PGM1 Reader
+#
+# Towers of Hanoi for the Busch Microtronic Computer System
+# Recursive Version 
+# (C) 2024 by LambdaMikel
+#
+# Works for up to 4 disks! 
 # 
+
+#
+# Note: You can simply use PicoRAM 2090 - no need to remove the comments etc.
+# Else, type in by hand into your Microtronic, but take note of the addresses!
+#
 
 00:fo8
 01:f0e

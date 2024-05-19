@@ -1,8 +1,27 @@
-# hanoi: change nr. of disks at address 008 (04.004 = 3 disks!)
-# start with 000 PC RUN
+#
+# Towers of Hanoi for the Kosmos CP1 Computer System
+# Recursive Version 
+# (C) 2024 by LambdaMikel
+#
+# NOTE: Requires the CP3 Memory Expansion for 256 words of memory!
+# 
+# This version works for up to 13 disks! 
+# It can work with even more disks, but the requires program changes, 
+# i.e., move the value stack start address to 170,
+# and the return stack start to 230. 
+
+# 
+# Note: you can change the nr. of disks at address 008 (04.004 = 3 disks!)
+# You can also change the peg names (010, 012, 014).
+# 
+# Take note of the addresses - the addresses are not always consecutive,
+# there are "gaps" in the program. Change the address during program entry
+# accordingly. Then Sstart the program with 000 PC RUN. 
+# 
 
 #
-# prepare stack pointers 
+# Initialization code: 
+# Prepare stack pointers 
 #
 
 000 ako 04.200 # value stack start 
