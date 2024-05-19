@@ -1,6 +1,13 @@
 # Towers of Hanoi 
 
+## Sourcecode 
+
+Check out the [src/](source subdirectory) for versions that you can enter
+(more or less directly) into the Kosmos CP1 and Microtronic.
+
 ## Kosmos CP1
+
+![cp1](pics/cp1.jpg)
 
 ### Video: [The Towers of Hanoi on the Kosmos CP1](https://youtu.be/SXnRAB-B1f0)
 
@@ -815,6 +822,8 @@ return block:
 ``` 
 
 ## Busch Microtronic 
+
+![cp1](pics/microtronic.jpg)
 
 ### Video: [The Recursive "Towers of Hanoi" on the 1981 Busch Microtronic](https://youtu.be/SwUh-Cs_eZE?list=PLvdXKcHrGqhe_Snxh4nh8RMDz2SiUDCHH) 
 
