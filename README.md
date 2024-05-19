@@ -2,8 +2,8 @@
 
 ## Sourcecode 
 
-Check out the [src/](source subdirectory) for versions that you can enter
-(more or less directly) into the Kosmos CP1 and Microtronic.
+Check out the [source subdirectory](./src/) for versions that you can
+enter (more or less directly) into the Kosmos CP1 and Microtronic.
 
 ## Kosmos CP1
 
