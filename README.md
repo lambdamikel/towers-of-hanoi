@@ -1,17 +1,33 @@
-# Towers of Hanoi 
+# Towers of Hanoi
+
+The infamous Towers of Hanoi, demonstrating tree recursion,
+implemented on the early 1980s educational computer systems
+
+- Busch Microtronic 2090 (from 1981) 
+- Kosmos CP1 (from 1984)
+
+These microcontroller-driven machines are programmed in proprietary,
+very rudimentary educational machine languages that do not feature
+native stack support. So to implement a recursive algorithm you will
+need to implement your own stack, or find other ways around it towards
+enabling a recursive definition.
+
+This is what this repo is about. 
 
 ## Sourcecode 
 
 Check out the [source subdirectory](./src/) for versions that you can
 enter (more or less directly) into the Kosmos CP1 and Microtronic.
 
-## Kosmos CP1
+## Versions from the YouTube Videos 
+
+### Kosmos CP1
 
 ![cp1](pics/cp1.jpg)
 
-### Video: [The Towers of Hanoi on the Kosmos CP1](https://youtu.be/SXnRAB-B1f0)
+#### Video: [The Towers of Hanoi on the Kosmos CP1](https://youtu.be/SXnRAB-B1f0)
 
-### Assembly Version (for readability only!) 
+#### Assembly Version (for readability only!) 
 
 ```
 FUNCTION MoveTower(disk, source, dest, spare):
@@ -415,7 +431,7 @@ return block:
 
 ```
 
-### Linked Version (Machine Language for the CP1) 
+#### Linked Version (Machine Language for the CP1) 
 
 ```
 FUNCTION MoveTower(disk, source, dest, spare):
@@ -821,13 +837,13 @@ return block:
 -------------------------------------------------------
 ``` 
 
-## Busch Microtronic 
+### Busch Microtronic 
 
 ![cp1](pics/microtronic.jpg)
 
-### Video: [The Recursive "Towers of Hanoi" on the 1981 Busch Microtronic](https://youtu.be/SwUh-Cs_eZE?list=PLvdXKcHrGqhe_Snxh4nh8RMDz2SiUDCHH) 
+#### Video: [The Recursive "Towers of Hanoi" on the 1981 Busch Microtronic](https://youtu.be/SwUh-Cs_eZE?list=PLvdXKcHrGqhe_Snxh4nh8RMDz2SiUDCHH) 
 
-### Code 
+#### Code 
 
 ```
 WORKS, UP TO 4 DISKS!
