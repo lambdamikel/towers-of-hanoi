@@ -2,7 +2,9 @@
 
 ## Kosmos CP1
 
-### Assembly Version (for readability) 
+### Video: [The Towers of Hanoi on the Kosmos CP1](https://youtu.be/SXnRAB-B1f0)
+
+### Assembly Version (for readability only!) 
 
 ```
 FUNCTION MoveTower(disk, source, dest, spare):
@@ -813,6 +815,10 @@ return block:
 ``` 
 
 ## Busch Microtronic 
+
+### Video: [The Recursive "Towers of Hanoi" on the 1981 Busch Microtronic](https://youtu.be/SwUh-Cs_eZE?list=PLvdXKcHrGqhe_Snxh4nh8RMDz2SiUDCHH) 
+
+### Code 
 
 ```
 WORKS, UP TO 4 DISKS!
