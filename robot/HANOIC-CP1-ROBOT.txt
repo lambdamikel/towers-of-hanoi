@@ -1,0 +1,324 @@
+#
+# Towers of Hanoi for the Kosmos CP1 — Robot Edition
+# Drives the Arduino-controlled physical Hanoi robot via Port 2 / Port 1.
+# Based on the recursive version by LambdaMikel (2024).
+#
+# Protocol (matches /home/mike/claude/hanoi/hanoi_robot.ino):
+#
+#   Port 2 pin 1 = D0   (move code bit 0)
+#   Port 2 pin 2 = D1   (move code bit 1)
+#   Port 2 pin 3 = D2   (move code bit 2)
+#   Port 2 pin 4 = STROBE (toggles each new command)
+#   Port 1 pin 1 = BUSY  (Arduino input back to CP1; HIGH while moving)
+#
+# Move codes:
+#   001 1->2    010 1->3    011 2->1
+#   100 2->3    101 3->1    110 3->2
+#
+# Wiring (CP1 <-> Arduino):
+#   Port 2 pin 1 <-> Arduino pin 3   (D0)
+#   Port 2 pin 2 <-> Arduino pin 4   (D1)
+#   Port 2 pin 3 <-> Arduino pin 8   (D2)
+#   Port 2 pin 4 <-> Arduino pin 2   (STROBE / INT0)
+#   Port 1 pin 1 <-> Arduino pin 7   (BUSY)
+#   GND          <-> GND             (common ground required)
+#
+# NOTE: Requires CP3 Memory Expansion (256 words).
+# Works for up to 13 disks (same as original; the protocol code adds no
+# stack overhead).
+#
+
+# =============================================================================
+# Initialization (UNCHANGED from original)
+# =============================================================================
+
+000 ako 04.200      # value stack start
+001 abs 06.146      # source *
+002 ako 04.201
+003 abs 06.147      # spare *
+004 ako 04.202
+005 abs 06.148      # dest *
+006 ako 04.240      # return stack start
+007 abs 06.149      # return stack *
+
+008 ako 04.003      # number of disks (change here for 4..13 disks)
+009 abs 06.145
+010 ako 04.001      # source peg number = 1
+011 ais 20.146
+012 ako 04.002      # spare peg number = 2
+013 ais 20.147
+014 ako 04.003      # dest peg number = 3
+015 ais 20.148
+016 ako 04.019      # return address after toplevel call
+017 ais 20.149
+
+018 spu 09.020      # call move_tower
+019 hlt 01.00       # done
+
+# =============================================================================
+# move_tower(disk, source, dest, spare) — UNCHANGED from original
+# =============================================================================
+
+020 lda 05.145
+021 vgl 10.150      # disk == 1?
+022 spb 11.057      # yes -> base case
+
+# recursive case: prepare first call (disk-1, source, spare, dest)
+
+023 ako 04.026      # label_0
+024 abs 06.143      # simple return 1
+025 spu 09.098      # save_and_push
+
+026 lda 05.140      # source -> source
+027 ais 20.146
+028 lda 05.142      # dest -> spare slot (i.e., new spare)
+029 ais 20.148
+030 lda 05.141      # spare -> dest slot (i.e., new dest)
+031 ais 20.147
+
+032 ako 04.035      # push return address
+033 ais 20.149
+034 spu 09.020      # recursive call
+
+035 ako 04.038      # label_2
+036 abs 06.143
+037 spu 09.120      # pop_and_restore
+
+# THE MOVE (between the two recursive calls)
+038 ako 04.041      # label_3
+039 abs 06.143
+040 spu 09.061      # call move_one_disk (NEW: now emits to Arduino)
+
+# prepare second call (disk-1, spare, dest, source)
+041 ako 04.044      # label_4
+042 abs 06.143
+043 spu 09.098      # save_and_push
+
+044 lda 05.142      # dest -> source
+045 ais 20.146
+046 lda 05.141      # spare -> dest
+047 ais 20.148
+048 lda 05.140      # source -> spare
+049 ais 20.147
+
+050 ako 04.053      # label_5
+051 ais 20.149
+052 spu 09.020      # recursive call
+
+053 ako 04.056      # label_6
+054 abs 06.143
+055 spu 09.120      # pop_and_restore
+
+056 spu 09.136      # return block
+
+# base case: just emit the move and return
+057 ako 04.060      # label_7
+058 abs 06.143
+059 spu 09.061      # call move_one_disk
+060 spu 09.136      # return block
+
+# =============================================================================
+# NEW: move_one_disk — emit move to Arduino via Port 2; await BUSY ack
+# Replaces original move_one_disk + disp subroutines (addrs 061-097).
+# Uses memory cells 140, 141 (aux), 152-155 (consts/strobe), 158-184 (tables).
+#
+# Also flashes source and dest on the CP1 display for bring-up visibility:
+# the display briefly shows the source peg number, then settles on the dest
+# peg number while the Arduino executes the move.
+# =============================================================================
+
+# --- 061-063: Wait for BUSY = LOW (Arduino is idle / previous move done) ---
+061 pie 16.001      # read Port 1 pin 1 (BUSY) into accu
+062 vgl 10.150      # compare with 1
+063 spb 11.061      # if equal (BUSY=1), loop back
+
+# --- 064-073: Compute idx_B = 3*source + dest, flashing S then D on display
+064 lia 19.146      # accu = source (1..3)
+065 anz 02.000      # display source peg # (flashes briefly)
+066 abs 06.140      # 140 = S
+067 add 07.140      # accu = 2S
+068 add 07.140      # accu = 3S
+069 abs 06.140      # 140 = 3S
+070 lia 19.148      # accu = dest (1..3)
+071 anz 02.000      # display dest peg # (will be steady value during Arduino move)
+072 add 07.140      # accu = 3S + D
+073 abs 06.140      # 140 = idx_B  (range 4..12 for valid moves)
+
+# --- 074-078: Lookup D0 bit from table[idx_B + 154], write to Port 2 pin 1 ---
+074 lda 05.140      # accu = idx_B
+075 add 07.152      # add D0 base offset (152 holds value 154)
+076 abs 06.141      # 141 = pointer to D0 table entry
+077 lia 19.141      # accu = D0 bit (0 or 1)
+078 p2a 18.001      # write to Port 2 pin 1
+
+# --- 079-083: Lookup D1, write to Port 2 pin 2 ---
+079 lda 05.140
+080 add 07.153      # add D1 base offset (153 holds value 163)
+081 abs 06.141
+082 lia 19.141
+083 p2a 18.002
+
+# --- 084-088: Lookup D2, write to Port 2 pin 3 ---
+084 lda 05.140
+085 add 07.154      # add D2 base offset (154 holds value 172)
+086 abs 06.141
+087 lia 19.141
+088 p2a 18.003
+
+# --- 089-092: Toggle strobe (cell 155, LSB), write to Port 2 pin 4 ---
+089 lda 05.155      # accu = strobe state
+090 add 07.150      # +1 (toggles bit 0 each call)
+091 abs 06.155      # write back
+092 p2a 18.004      # write LSB to Port 2 pin 4 (this edge is what Arduino latches)
+
+# --- 093-096: Wait for BUSY = HIGH (Arduino has latched the command) ---
+093 pie 16.001      # read BUSY
+094 vgl 10.150      # vs 1
+095 spb 11.097      # if BUSY=1, jump to return
+096 spu 09.093      # else loop back
+
+# --- 097: Return via simple return 1 ---
+097 siu 21.143
+
+# =============================================================================
+# save_and_push — UNCHANGED from original
+# =============================================================================
+
+098 lda 05.145      # disk
+099 sub 08.150      # disk - 1
+100 abs 06.145
+
+101 lia 19.146      # save source
+102 abs 06.140
+103 lia 19.148      # save dest
+104 abs 06.141
+105 lia 19.147      # save spare
+106 abs 06.142
+
+107 lda 05.146      # advance source pointer +3
+108 add 07.151
+109 abs 06.146
+110 lda 05.148      # advance dest pointer +3
+111 add 07.151
+112 abs 06.148
+113 lda 05.147      # advance spare pointer +3
+114 add 07.151
+115 abs 06.147
+
+116 lda 05.149      # advance return pointer +1
+117 add 07.150
+118 abs 06.149
+
+119 siu 21.143
+
+# =============================================================================
+# pop_and_restore — UNCHANGED from original
+# =============================================================================
+
+120 lda 05.145
+121 add 07.150
+122 abs 06.145
+
+123 lda 05.146
+124 sub 08.151
+125 abs 06.146
+
+126 lda 05.148
+127 sub 08.151
+128 abs 06.148
+
+129 lda 05.147
+130 sub 08.151
+131 abs 06.147
+
+132 lda 05.149
+133 sub 08.150
+134 abs 06.149
+
+135 siu 21.143
+
+# =============================================================================
+# return block — UNCHANGED
+# =============================================================================
+
+136 lia 19.149
+137 abs 06.143
+138 siu 21.143
+
+# =============================================================================
+# Constants and tables
+# =============================================================================
+
+# Originals (unchanged)
+150 00.001          # const 1
+151 00.003          # const 3
+
+# NEW constants (replace old sep 1 / sep 2)
+152 00.154          # D0 base offset: idx_B + 154 = D0 table address
+153 00.163          # D1 base offset
+154 00.172          # D2 base offset
+155 00.000          # strobe state (init 0; alternates 0/1/0/1 on each move)
+
+# (156-157 unused)
+
+# D0 table — bit 0 of move code, indexed by idx_B = 3*S + D
+# Valid moves: idx_B in {5,6,7,9,10,11}; cells at "invalid" indices left at 0.
+158 00.000          # idx_B=4  (S=1,D=1 invalid)
+159 00.001          # idx_B=5  (1->2, code 1=001: D0=1)
+160 00.000          # idx_B=6  (1->3, code 2=010: D0=0)
+161 00.001          # idx_B=7  (2->1, code 3=011: D0=1)
+162 00.000          # idx_B=8  (S=2,D=2 invalid)
+163 00.000          # idx_B=9  (2->3, code 4=100: D0=0)
+164 00.001          # idx_B=10 (3->1, code 5=101: D0=1)
+165 00.000          # idx_B=11 (3->2, code 6=110: D0=0)
+166 00.000          # idx_B=12 (S=3,D=3 invalid)
+
+# D1 table — bit 1 of move code
+167 00.000          # idx 4
+168 00.000          # 1->2: D1=0
+169 00.001          # 1->3: D1=1
+170 00.001          # 2->1: D1=1
+171 00.000          # idx 8
+172 00.000          # 2->3: D1=0
+173 00.000          # 3->1: D1=0
+174 00.001          # 3->2: D1=1
+175 00.000          # idx 12
+
+# D2 table — bit 2 of move code
+176 00.000          # idx 4
+177 00.000          # 1->2: D2=0
+178 00.000          # 1->3: D2=0
+179 00.000          # 2->1: D2=0
+180 00.000          # idx 8
+181 00.001          # 2->3: D2=1
+182 00.001          # 3->1: D2=1
+183 00.001          # 3->2: D2=1
+184 00.000          # idx 12
+
+# =============================================================================
+# Memory map (data region)
+#
+# 140 aux 1 / scratch
+# 141 aux 2 / scratch pointer
+# 142 aux 3
+# 143 simple return 1
+# 144 simple return 2 (unused now; disp removed)
+# 145 disk nr.
+# 146 source stack pointer
+# 147 spare  stack pointer
+# 148 dest   stack pointer
+# 149 return stack pointer
+#
+# 150 const 1
+# 151 const 3
+# 152 D0 base offset = 154
+# 153 D1 base offset = 163
+# 154 D2 base offset = 172
+# 155 strobe state
+# 158-166 D0 table
+# 167-175 D1 table
+# 176-184 D2 table
+#
+# 200-239 value stack (13 entries)
+# 240-255 return stack
+# =============================================================================

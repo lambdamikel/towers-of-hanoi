@@ -1,0 +1,515 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{microtype}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{graphicx}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  citecolor=blue!50!black
+}
+
+% A simple style for vintage-machine code listings.
+\lstdefinestyle{mic}{
+  basicstyle=\ttfamily\footnotesize,
+  numbers=none,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!40},
+  backgroundcolor=\color{black!3},
+  breaklines=true,
+  showstringspaces=false,
+  columns=fullflexible,
+  keepspaces=true,
+  commentstyle=\color{black!55}\itshape,
+  literate={->}{$\rightarrow$}{2},
+}
+
+\lstset{style=mic}
+
+\title{Recursive Towers of Hanoi on 1980s Educational Microcomputers \\
+  \large A Tale of Two Architectures, Forty-Two Years Late}
+\author{LambdaMikel \and Claude (Opus 4.7, Anthropic)}
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present two implementations of the recursive Towers of Hanoi
+algorithm targeting educational microcomputer systems from the early
+1980s: the \emph{Kosmos CP1} (1983, Intel 8049 based) and the
+\emph{Busch Microtronic 2090} (1981, TI~TMS1600 based). The CP1
+implementation reads as a textbook example of recursion: the machine
+provides indirect addressing, indirect jumps, and enough memory to
+host a conventional call stack. The Microtronic implementation,
+however, must contend with a platform that offers none of those
+primitives---no stack, no indirect addressing, no indirect jumps, no
+random-access memory beyond the register file, and a four-bit data
+path. We show how recursion can nonetheless be realised on the
+Microtronic by exploiting its rarely-used dual register bank as a
+substrate for two hand-built stacks, and by replacing indirect
+returns with a small marker-dispatch table. We compare the two
+implementations as engineering artefacts and conclude with a brief
+account of physically embodying the algorithm by having either host
+drive an Arduino-based robotic arm via a simple four-bit protocol.
+\end{abstract}
+
+\section{Introduction}
+
+The Towers of Hanoi is the textbook example of tree recursion. Its
+implementation in any modern programming language is unremarkable;
+the language's runtime stack handles the recursive descent and the
+problem reduces to a six-line function. On a machine that has no
+hardware stack, no indirect addressing, and only sixteen four-bit
+registers, the story is rather different.
+
+This article concerns two such machines, both sold as educational
+microcomputers in the early 1980s, and both essentially obsolete by
+1990:
+
+\begin{itemize}
+  \item the \textbf{Kosmos CP1} (1983), built around an Intel 8049
+    microcontroller, with hexadecimal keypad and seven-segment display,
+    and (with the CP3 expansion) 256 words of memory;
+  \item the \textbf{Busch Microtronic 2090} (1981), built around a TI
+    TMS1600 calculator-derived microcontroller, with the same physical
+    interface but a fundamentally simpler architecture---no addressable
+    memory other than the register file, and no stack of any kind.
+\end{itemize}
+
+Both machines were sold to teach young people how computers ``really
+work,'' and both succeed at this in ways the marketing material did
+not anticipate. The CP1 teaches you what \emph{a} computer looks like.
+The Microtronic teaches you what a computer might be made to do when
+the architecture refuses to help.
+
+We will spend the bulk of this article on the Microtronic
+implementation, because that is the more interesting story, and only
+briefly summarise the CP1 program, which is in essence the form one
+would write if given the choice of platform. We close with a short
+discussion of the recent extension of both programs to physically
+drive a Hanoi-solving robot through an Arduino-mediated digital
+protocol, demonstrating that the original programs were really doing
+useful work, not merely simulating it on a seven-segment display.
+
+The recursive procedure under discussion is, throughout, the
+following:
+
+\begin{lstlisting}
+function MoveTower(disk, source, dest, spare):
+    if disk == 1:
+        emit_move(source, dest)
+    else:
+        MoveTower(disk - 1, source, spare, dest)
+        emit_move(source, dest)
+        MoveTower(disk - 1, spare, dest, source)
+\end{lstlisting}
+
+\noindent
+The challenge on either machine is implementing the two recursive
+calls without losing the caller's local state. On a stack machine
+this is free; on the CP1 it is a deliberate engineering exercise; on
+the Microtronic it is essentially a small piece of architecture
+research.
+
+\section{The Kosmos CP1}
+
+\subsection{What the machine provides}
+
+The CP1 is a fairly orthodox 8-bit accumulator machine. With the CP3
+memory expansion it offers 256 words of writable memory, addressable
+0--255. Beyond the conventional load/store/arithmetic operations, it
+offers three primitives that turn out to be decisive for any
+recursive program:
+
+\begin{itemize}
+  \item \texttt{LIA} ($19.xxx$): \emph{load indirect}. Treats memory
+    cell $xxx$ as a pointer; loads the accumulator from the address
+    that cell contains.
+  \item \texttt{AIS} ($20.xxx$): \emph{store indirect}. Stores the
+    accumulator at the address pointed to by cell $xxx$.
+  \item \texttt{SIU} ($21.xxx$): \emph{jump indirect}. Transfers
+    control to the address held in cell $xxx$.
+\end{itemize}
+
+\noindent
+With these three instructions, recursion is straightforward: one
+implements a stack as a region of memory, manages a stack pointer in a
+fixed cell, and uses \texttt{SIU} to return to the caller via a saved
+address.
+
+\subsection{Memory layout}
+
+The CP1 implementation maintains four stacks simultaneously: three
+value stacks (\textit{source}, \textit{spare}, \textit{dest}) and one
+return stack. Rather than packing all four into a single
+interleaved frame layout, the program uses three \emph{parallel} value
+stacks at stride three, plus a separate return stack:
+
+\begin{lstlisting}
+  140  aux 1            150  const 1
+  141  aux 2            151  const 3
+  142  aux 3
+  143  return slot 1
+  144  return slot 2
+
+  145  disk number
+  146  *source          (stack pointer; initially 200)
+  147  *spare           (stack pointer; initially 201)
+  148  *dest            (stack pointer; initially 202)
+  149  *return          (stack pointer; initially 240)
+
+  200..239  value stacks  (13 frames, stride 3)
+  240..255  return stack  (16 entries)
+\end{lstlisting}
+
+\noindent
+The three value-stack pointers begin at 200, 201, and 202. Pushing a
+frame is then a matter of adding three to each pointer, since the
+three values for the new frame land naturally at the next stride-three
+slot. The disk number is treated as a single mutable cell rather than
+being stacked; it is decremented on entry and incremented on return,
+which is correct because the algorithm only ever explores depths
+monotonically.
+
+\subsection{The subroutine-call convention}
+
+The CP1 has no hardware call instruction. The program implements one
+by hand: before any \texttt{SPU} (unconditional jump) used as a call,
+the caller writes the desired return address into a fixed memory cell;
+the callee returns by \texttt{SIU} through that cell. Two such cells
+exist, named \emph{simple return 1} and \emph{simple return 2}, which
+allows one level of subroutine nesting (the inner subroutine may
+itself call another, provided it uses the other slot). For deeper
+nesting---in particular, for recursion---the program pushes the return
+address onto the return stack instead, and the dedicated
+\textit{return block} at address 136 pops the top of the return stack
+into \emph{simple return 1} and \texttt{SIU}s through it.
+
+In effect, the CP1 program reconstructs the runtime apparatus
+of a single-threaded recursive language: a call stack, a return
+mechanism, and a frame layout. None of it is exotic. The interesting
+choice is the \emph{stride-3 parallel stacks}, which save the
+arithmetic of computing per-field offsets inside packed frames; once
+the three pointers are advanced together, an indirect load of, say,
+\texttt{*source} yields the source peg of the current frame without
+further work.
+
+\subsection{Capacity}
+
+The CP1 program supports up to thirteen disks within the default
+memory layout. With minor adjustments to stack base addresses (the
+comments suggest moving the value stack start to 170 and the return
+stack to 230), it can be pushed further still. The actual ceiling is
+the available memory.
+
+\section{The Busch Microtronic 2090}
+
+\subsection{What the machine does not provide}
+
+The Microtronic is a different proposition. Its architecture omits
+nearly every primitive that makes the CP1 program straightforward:
+
+\begin{itemize}
+  \item There is no addressable memory beyond the register file. All
+    state must live in registers.
+  \item There are only sixteen registers, each four bits wide.
+  \item There is no indirect addressing; all instructions encode their
+    operands as register or constant nibbles.
+  \item There is no indirect jump; control transfer is by absolute
+    eight-bit address only.
+  \item There is, however, a curiosity that turns out to matter
+    enormously: \emph{the register file is actually two banks of
+    sixteen registers each}, with three exchange instructions
+    (\texttt{EXRL}, \texttt{EXRM}, \texttt{EXRA}) that swap the
+    contents of the low half, the high half, or the whole file with a
+    hidden second bank.
+\end{itemize}
+
+\noindent
+For most of the Microtronic's history, the second bank was used---if
+at all---as a scratch area for temporarily preserving values across
+some calculation. The implementation discussed here uses it for
+something more structural.
+
+\subsection{The central idea}
+
+The implementation treats the Microtronic's two register banks as a
+two-page memory system. One bank holds the current active frame and
+the return stack; the other bank holds the value stack. The exchange
+instructions \texttt{EXRL} and \texttt{EXRM}, applied together, swap
+the two banks in their entirety; applied around a block of
+register-shuffling code, they let one bank be mutated while the other
+is left untouched and then ``swapped back into focus.''
+
+Concretely:
+
+\begin{itemize}
+  \item \textbf{Bank A} (the bank active at procedure entry):
+    registers~$\mathtt{R_8}$ to $\mathtt{R_F}$ hold the current frame
+    and a return marker; registers $\mathtt{R_0}$ to $\mathtt{R_7}$
+    are left alone.
+  \item \textbf{Bank B} (accessed only via \texttt{EXRL}+\texttt{EXRM}
+    pairs): all sixteen registers $\mathtt{R_0}$ to $\mathtt{R_F}$
+    hold the value stack as a deque of up to four four-value frames.
+\end{itemize}
+
+\noindent
+The shift routines that implement push and pop on the value stack
+\emph{themselves} bracket their work with
+\texttt{EXRL}+\texttt{EXRM}\,/\,\texttt{EXRL}+\texttt{EXRM}, so that
+from the caller's perspective the shifts appear atomic and the
+caller's own bank is restored on return. This bracketing pattern is
+what makes the whole architecture composable, and it is what allows
+the protocol code we describe in Section~\ref{sec:robot} to use the
+otherwise-unused registers $\mathtt{R_0}$, $\mathtt{R_1}$,
+$\mathtt{R_7}$ as scratch and persistent state without disturbing
+either stack.
+
+\subsection{Frame layout and the push}
+
+Each call frame consists of four values---disk number, source peg,
+destination peg, spare peg---occupying four consecutive registers.
+Pushing a frame requires:
+
+\begin{enumerate}
+  \item Calling the \emph{value-stack shift-down} routine four times,
+    each call shifting every register one position towards the lower
+    indices (with the lowest register lost). After four shifts, four
+    register slots have been freed at the top of the stack.
+  \item Switching to bank~B (via \texttt{EXRM}) and writing the four
+    new frame values into the freed slots.
+  \item Switching back to bank~A, recording a small integer
+    \emph{return marker} in $\mathtt{R_F}$ to identify the call site,
+    and unconditionally jumping (\texttt{GOTO}) to the recursive entry
+    point.
+\end{enumerate}
+
+\noindent
+The shift routine itself is unrolled and minimal:
+
+\begin{lstlisting}
+70: f0d   # EXRL: swap low half of register file
+71: f0e   # EXRM: swap high half
+72: 010   # r0 := r1   (operand order: 0RS means r{S} := r{R})
+73: 021   # r1 := r2
+74: 032   # r2 := r3
+75: 043   # r3 := r4
+76: 054   # r4 := r5
+77: 065   # r5 := r6
+78: 076   # r6 := r7
+79: 087   # r7 := r8
+7a: 098   # r8 := r9
+7b: 0a9   # r9 := rA
+7c: 0ba   # rA := rB
+7d: 0cb   # rB := rC
+7e: 0dc   # rC := rD
+7f: 0ed   # rD := rE
+80: 0fe   # rE := rF   (rF is the only register not written; it duplicates into rE)
+81: f0e   # EXRM (back)
+82: f0d   # EXRL (back)
+83: f07   # RET
+\end{lstlisting}
+
+\noindent
+The two \texttt{EXR*} pairs are the magic. Inside the bracket the
+machine is operating on bank~B, where the value stack lives; outside,
+on bank~A, where the caller's working registers are. A single call to
+this routine shifts the entire bank-B register file by one position
+\emph{without} touching bank~A. Four calls in a row create the
+four-slot hole that a push requires.
+
+\subsection{The return mechanism}
+
+The Microtronic has no indirect jump. After a recursive call returns,
+control must somehow find its way back to one of three possible
+continuation sites in the body of \texttt{MoveTower}: the point after
+the first recursive call, the point after the second, or the top-level
+caller in main. Conventional return-address pushing is therefore
+unworkable.
+
+The implementation solves this with a tiny \emph{return marker}: each
+call pushes a small integer onto a one-register-deep return stack (in
+fact several registers deep, allowing the call chain to nest as
+deeply as the algorithm requires). After the call returns, control
+transfers to a fixed \emph{dispatch block}:
+
+\begin{lstlisting}
+b0: 91f   # CMPI 1, RF        (marker == 1?)
+b1: E0b   # BRZ to 0b         (return to main)
+b2: 92f   # CMPI 2, RF        (marker == 2?)
+b3: E24   # BRZ to 24         (return to inner site 2)
+b4: 93f   # CMPI 3, RF        (marker == 3?)
+b5: E3c   # BRZ to 3c         (return to inner site 3)
+b6: F00   # HALT              (error: unknown marker)
+\end{lstlisting}
+
+\noindent
+With only three distinct call sites in the program, three markers
+suffice. The dispatch costs a handful of compare-and-branch
+instructions per return, which is cheap relative to the
+sixty-instruction cost of pushing and popping a value-stack frame.
+
+\subsection{Capacity}
+
+The Microtronic implementation supports up to four disks. The
+constraint is the value stack: each frame is four registers wide, and
+the deepest sensible level holds four frames simultaneously, exactly
+filling bank~B's sixteen registers. A more aggressive packing---two
+two-bit peg labels and a two-bit disk number into a single
+register---would extend this to seven or eight disks, at the cost of
+significant additional pack/unpack code.
+
+\section{Comparison}
+
+The two implementations solve the same problem on machines of broadly
+similar physical scale (256 words of program memory, six-digit
+displays, hex keypads, single-digit kilohertz clock speeds), but they
+read as if they belonged to different decades.
+
+\begin{center}
+\small
+\begin{tabular}{p{4.6cm}p{4.6cm}p{4.6cm}}
+\toprule
+ & \textbf{Kosmos CP1} & \textbf{Busch Microtronic 2090} \\
+\midrule
+CPU                       & Intel 8049 (8-bit)             & TI TMS1600 (4-bit interpreted) \\
+Memory beyond regs        & 256 words (with CP3)            & none \\
+Indirect load/store       & \texttt{LIA}, \texttt{AIS}      & not available \\
+Indirect jump             & \texttt{SIU}                    & not available \\
+Bitwise AND               & \texttt{UND}                    & not available \\
+Number of registers       & 8-bit accumulator               & 16 four-bit registers, two banks \\
+Stack realisation         & memory region + pointer cell    & shifts across the second bank \\
+Subroutine return         & indirect via memory cell        & marker dispatch table \\
+Disk-count ceiling        & 13 (default), more with effort  & 4 \\
+Per-move overhead         & a few dozen instructions        & roughly sixty (mostly shifts) \\
+Lines of source           & $\sim$140                       & $\sim$160 \\
+Reads like                & a recursive program             & a small machine you built \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\bigskip
+
+\noindent
+The CP1 implementation is \emph{applied} computer science: it is what
+one writes when the platform provides the primitives the algorithm
+needs. The Microtronic implementation is \emph{experimental} computer
+science: it is what one writes when those primitives must first be
+invented out of the available substrate. The bank-swap-as-stack idiom
+is the central piece of invention. It would generalise to other
+recursive algorithms---tree walks, mutual recursion, even simple
+interpreters---on the same hardware, but to the author's knowledge it
+had not appeared in print, in forty-two years of the Microtronic's
+existence, until this implementation was written in early 2024.
+
+\section{Physical Embodiment}
+\label{sec:robot}
+
+Both implementations have been extended to drive a physical
+Towers-of-Hanoi-solving robot. The robot is mechanically simple: a
+two-degree-of-freedom pan/tilt arm with an electromagnet at the tip,
+controlled by an Arduino. The Arduino performs all servo motion
+planning, magnet pulse-width control, and disk-position tracking; the
+vintage host need only emit a stream of high-level
+\(\langle\textit{source},\textit{dest}\rangle\) move commands.
+
+The communication protocol is deliberately minimal so that it can fit
+inside either machine's tiny I/O envelope. Four output lines from the
+host carry a three-bit move code (1--6, one per legal source-to-dest
+pair) and a strobe bit that toggles on every command; one input line
+returns to the host as a \emph{busy} signal that is held high while
+the Arduino is in motion. The host's per-move logic is then:
+
+\begin{enumerate}
+  \item Poll the busy line until low.
+  \item Compute the three-bit move code and toggle the strobe bit.
+  \item Atomically present all four output bits.
+  \item Poll the busy line until high (acknowledgement).
+\end{enumerate}
+
+\noindent
+On the Microtronic, the four output bits are written by a single
+\texttt{DOT} instruction, which makes the protocol naturally
+race-free: the strobe transition and the data bits all change in the
+same instruction. On the CP1, the same effect is achieved by writing
+the three data bits first via three successive \texttt{P2A}
+instructions and the strobe bit last, so that when the Arduino's
+edge-triggered interrupt fires on the strobe, the data lines are
+already settled.
+
+A subtle question on the Microtronic was where to store the
+single bit of persistent strobe state across recursive calls. The
+algorithm uses every register in both banks for the value and return
+stacks---or does it? In fact, registers $\mathtt{R_0}$ to
+$\mathtt{R_7}$ of the active (bank~A) state are never written by the
+original recursive code. The shift routines do touch them, but
+\emph{only} inside their \texttt{EXRL}-bracketed regions, where they
+operate on bank~B's copies; the active-bank values are restored on
+exit. The strobe bit therefore lives in $\mathtt{R_7}$ of bank~A and
+survives the full depth of the recursion without further machinery.
+
+On the CP1, the equivalent state is simply a memory cell.
+
+\section{Closing Remarks}
+
+The CP1 program is a finished engineering artefact: it does what
+recursion is supposed to do, on a machine that lets it. It is the
+program one would write today if one were trying to teach a student
+how recursion is implemented underneath a high-level language.
+
+The Microtronic program is something different. It is a discovery
+about a forty-year-old machine---a demonstration that an architecture
+which appears to forbid recursion will, in fact, host it, provided
+the programmer is willing to construct the missing primitives by
+hand. The bank-swap-as-stack idea is small, but it is the kind of
+thing that does not announce itself: in forty-two years of the
+Microtronic's existence, it had not been written down. It is in the
+nature of obscure platforms that they accumulate such secrets, and in
+the nature of long acquaintance that one occasionally notices them.
+
+That the same machines can now drive a physical robot, through a
+fifty-cent serial protocol to a five-dollar microcontroller, is a
+fitting late chapter. The TMS1600 and the 8049 were designed to teach
+people what computers were; they are now, against considerable odds,
+teaching one of them to move steel washers between three pegs in a
+provably-optimal sequence. The teaching, it appears, was effective.
+
+\section*{Authorship Note}
+
+The prose of this paper was generated by Claude Opus~4.7 (Anthropic),
+working from extended discussions of the source code with the
+human co-author. The two recursive Towers of Hanoi
+implementations themselves---the Microtronic 2090 program and the
+Kosmos CP1 program---were written by hand by the human co-author
+(LambdaMikel) and should be credited accordingly. The robot-control
+extensions to both programs (the Arduino sketch, the patched
+\texttt{HANOI-ROBOT.MIC} and \texttt{HANOIC-CP1-ROBOT.txt}, and the
+shared four-bit GPIO protocol described in
+Section~\ref{sec:robot}) were designed and written by Claude during
+the conversation that produced this paper.
+
+\appendix
+
+\section{Source-Code Availability}
+
+The reference implementations for both machines, and the Arduino
+firmware for the robot, are available at
+\url{https://github.com/lambdamikel/towers-of-hanoi}. The opcode
+reference used in decoding the Microtronic source is drawn from the
+emulator code at \url{https://github.com/lambdamikel/Busch-2090}; the
+Kosmos CP1 manual is available via the Internet Archive at
+\url{https://archive.org/details/cp-1-manual}.
+
+\end{document}

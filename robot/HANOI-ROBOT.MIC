@@ -1,0 +1,259 @@
+#
+# Towers of Hanoi for the Busch Microtronic — Robot Edition
+# Drives the Arduino-controlled physical Hanoi robot via DOT/DIN.
+# Based on the recursive version by LambdaMikel (2024).
+#
+# Protocol (matches /home/mike/claude/hanoi/hanoi_robot.ino):
+#
+#   DOT_4 DOT_3 DOT_2 DOT_1
+#   strobe  D2    D1    D0   = 4 bits written to the output port.
+#   D2..D0 = move code (1..6); strobe toggles each new command.
+#
+#   DIN_1 = BUSY from Arduino (HIGH while move in progress).
+#
+# Move codes:
+#   001 A->B    010 A->C    011 B->A
+#   100 B->C    101 C->A    110 C->B
+#
+# Wiring (Microtronic <-> Arduino):
+#   DOT_1 <-> Arduino pin 3   (D0)
+#   DOT_2 <-> Arduino pin 4   (D1)
+#   DOT_3 <-> Arduino pin 8   (D2)
+#   DOT_4 <-> Arduino pin 2   (STROBE)
+#   DIN_1 <-> Arduino pin 7   (BUSY)
+#   GND   <-> GND             (common ground required)
+#
+
+#
+# ---- Original main + recursion (unchanged) ----
+#
+
+00:f08         # CLEAR all registers (also zeros R7, our strobe state)
+01:f0e         # EXRM
+02:f1f         # DISP digit 1, RF  (display n entry)
+03:fff         # KIN  RF           (read n from keypad)
+04:f02         # DISOUT
+05:1ae         # MOVI A, RE  (source = A)
+06:1cd         # MOVI C, RD  (dest   = C)
+07:1bc         # MOVI B, RC  (spare  = B)
+08:f0e         # EXRM
+09:11f         # MOVI 1, RF  (push return marker 1)
+0a:c0d         # GOTO hanoi
+0b:f60         # DISP digit 6, R0 (program done indicator)
+0c:f00         # HALT
+
+#
+# hanoi(n, source, dest, spare) @ 0d
+#
+0d:f0e         # EXRM (swap in value-stack frame)
+0e:91f         # CMPI 1, RF  (n == 1?)
+0f:D15         # BRC $15 (n > 1, take recursive path)
+
+# === Base case: emit move, return ===
+10:f3d         # DISP digit 3, RD  (still shows dest peg, helpful in step mode)
+11:bc0         # CALL send_move  <<< CHANGED from FF0 (KIN R0) >>>
+12:f02         # DISOUT
+13:f0e         # EXRM
+14:cb0         # GOTO jump block (return)
+
+# === Recursive case: prep first recursive call ===
+15:f0e         # EXRM
+16:b70         # CALL value-stack shift-down
+17:b70
+18:b70
+19:b70
+1a:f0e         # EXRM
+1b:0bf         # MOV RB->RF  (copy n)
+1c:71f         # SUBI 1, RF  (n-1)
+1d:0ae         # MOV RA->RE  (source -> source)
+1e:09c         # MOV R9->RC  (dest   -> spare)
+1f:08d         # MOV R8->RD  (spare  -> dest)
+20:f0e         # EXRM
+21:b50         # CALL return-stack shift-down
+22:12f         # MOVI 2, RF  (push return marker 2)
+23:c0d         # GOTO hanoi
+
+24:b60         # CALL return-stack shift-up
+25:b90         # CALL value-stack shift-up
+26:b90
+27:b90
+28:b90
+
+# === Emit move ===
+29:f0e         # EXRM
+2a:f3d         # DISP digit 3, RD
+2b:bc0         # CALL send_move  <<< CHANGED from FF0 (KIN R0) >>>
+2c:f02         # DISOUT
+2d:f0e         # EXRM
+
+# === Prep second recursive call ===
+2e:b70
+2f:b70
+30:b70
+31:b70
+32:f0e
+33:0bf         # MOV RB->RF (copy n)
+34:71f         # SUBI 1, RF
+35:08e         # MOV R8->RE  (spare -> source)
+36:09d         # MOV R9->RD  (dest  -> dest)
+37:0ac         # MOV RA->RC  (source-> spare)
+38:f0e
+39:b50
+3a:13f         # MOVI 3, RF  (return marker 3)
+3b:c0d         # GOTO hanoi
+
+3c:b60
+3d:b90
+3e:b90
+3f:b90
+40:b90
+41:cb0         # GOTO jump block (return)
+
+#
+# Return stack shift-down (unchanged)
+#
+50:098
+51:0a9
+52:0ba
+53:0cb
+54:0dc
+55:0ed
+56:0fe
+57:f07
+
+#
+# Return stack shift-up (unchanged)
+#
+60:0ef
+61:0de
+62:0cd
+63:0bc
+64:0ab
+65:09a
+66:089
+67:f07
+
+#
+# Value stack shift-down (unchanged)
+#
+70:f0d
+71:f0e
+72:010         # R0 := R1   (operand convention: 0RS means R{S} := R{R}, so R is source, S is destination)
+73:021         # R1 := R2
+74:032         # R2 := R3
+75:043         # R3 := R4
+76:054         # R4 := R5
+77:065         # R5 := R6
+78:076         # R6 := R7
+79:087         # R7 := R8
+7a:098         # R8 := R9
+7b:0a9         # R9 := RA
+7c:0ba         # RA := RB
+7d:0cb         # RB := RC
+7e:0dc         # RC := RD
+7f:0ed         # RD := RE
+80:0fe         # RE := RF   (RF itself is never written: it stays as the "top" and gets duplicated at RE)
+81:f0e
+82:f0d
+83:f07
+
+#
+# Value stack shift-up (unchanged)
+#
+90:f0d
+91:f0e
+92:0ef
+93:0de
+94:0cd
+95:0bc
+96:0ab
+97:09a
+98:089
+99:078
+9a:067
+9b:056
+9c:045
+9d:034
+9e:023
+9f:012
+a0:001
+a1:f0e
+a2:f0d
+a3:f07
+
+#
+# Return-marker dispatch (unchanged)
+#
+b0:91f         # marker 1?
+b1:E0b         # yes: return to $0b (after first call from main)
+b2:92f         # marker 2?
+b3:E24         # yes: return to $24
+b4:93f         # marker 3?
+b5:E3c         # yes: return to $3c
+b6:F00         # error: HALT
+
+#
+# ================== NEW: send_move subroutine @ $c0 ==================
+#
+# Called from inside the bank-swapped state.
+# Reads source (RE), dest (RD), produces 3-bit move code,
+# packs with toggled strobe (bit 3), sends via DOT,
+# and waits for the Arduino to acknowledge by raising BUSY.
+#
+# Uses R0 (DIN scratch), R1 (move code), R7 (strobe state).
+# All three are in the lower bank, not affected by EXRM,
+# so they survive across the algorithm's bank swaps.
+#
+
+# --- Wait for Arduino BUSY = LOW (Arduino idle / previous move done) ---
+c0:fd0         # DIN R0
+c1:310         # ANDI 1, R0  (mask just bit 0)
+c2:900         # CMPI 0, R0
+c3:Dc0         # BRC $c0  (loop if R0 != 0, i.e., still BUSY)
+
+# --- Decode (source, dest) -> move code in R1 ---
+c4:9ae         # CMPI A, RE  (source == A?)
+c5:Ecc         # BRZ $cc     (yes -> handle src=A)
+c6:9be         # CMPI B, RE  (source == B?)
+c7:Ed2         # BRZ $d2     (yes -> handle src=B)
+# source = C
+c8:9ad         # CMPI A, RD  (dest == A?)
+c9:Ed8         # BRZ $d8     (yes -> code = 5)
+ca:116         # MOVI 6, R1  (else dest = B, code = 6)
+cb:Cd9         # GOTO pack
+
+# src = A
+cc:9bd         # CMPI B, RD  (dest == B?)
+cd:Dd0         # BRC $d0     (no -> dest = C, code = 2)
+ce:111         # MOVI 1, R1  (yes: code = 1 for A->B)
+cf:Cd9         # GOTO pack
+d0:112         # MOVI 2, R1  (A->C)
+d1:Cd9         # GOTO pack
+
+# src = B
+d2:9ad         # CMPI A, RD  (dest == A?)
+d3:Dd6         # BRC $d6     (no -> dest = C, code = 4)
+d4:113         # MOVI 3, R1  (B->A)
+d5:Cd9         # GOTO pack
+d6:114         # MOVI 4, R1  (B->C)
+d7:Cd9         # GOTO pack
+
+# src = C, dest = A
+d8:115         # MOVI 5, R1  (C->A) - falls through to pack
+
+# --- pack: output = (toggled_strobe << 3) | code ---
+d9:517         # ADDI 1, R7   (toggle: 0->1, 1->2)
+da:317         # ANDI 1, R7   (mask: 2 -> 0; net effect 0<->1)
+db:fa7         # SHL R7       (R7 <<= 1)
+dc:fa7         # SHL R7
+dd:fa7         # SHL R7       (strobe bit now in position 3)
+de:a17         # OR R1 -> R7  (R7 |= R1; full output value)
+df:fe7         # DOT R7       (drive output port; rising/falling edge on DOT_4)
+
+# --- Wait for Arduino BUSY = HIGH (ack: ISR latched the command) ---
+e0:fd0         # DIN R0
+e1:310         # ANDI 1, R0
+e2:900         # CMPI 0, R0
+e3:Ee0         # BRZ $e0     (loop while still LOW)
+
+e4:f07         # RET
