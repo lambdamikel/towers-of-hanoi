@@ -455,6 +455,129 @@ both programs (the Arduino sketch, the patched `HANOI-ROBOT.MIC` and
 described in Section 5) were designed and written by Claude during
 the conversation that produced this paper.
 
+## Designing a Hanoi Robot
+
+The article above covers the *software* side of the robot — the
+recursive solver patched into the Microtronic and CP1, the four-bit
+GPIO protocol, and the Arduino sketch that executes moves. This
+section is a companion log of the *hardware* design decisions, the
+parts list, and the mechanical reasoning behind them. The full bill of
+materials lives in [`robot/BOM.md`](./robot/BOM.md) and the wiring
+diagram in [`robot/wiring.md`](./robot/wiring.md).
+
+### Goals
+
+A tabletop pan/tilt arm that picks steel washers (the "disks") off
+three peg positions on a baseboard and stacks them according to moves
+streamed in from a vintage host. Cheap, fully reversible, no machine
+shop required.
+
+### Pan/tilt platform
+
+A **Yahboom 2-DOF metal-servo pan/tilt kit** (no control board) gives
+both servos and the bracketry in one package. The two metal-gear
+servos are driven directly from Arduino PWM pins 9 (pan) and 10
+(tilt) via the standard `Servo` library — no dedicated servo driver
+board is needed, because hobby servos contain their own internal
+driver electronics and only need a low-current PWM control signal
+from the MCU. Motor current comes from a separate 12V→6V buck
+converter, not from Arduino's 5V regulator.
+
+### Brownout-resistant signal routing: Sensor Shield V5
+
+An **Arduino Sensor Shield V5.0** sits on top of the Uno. Every
+digital and analog pin is broken out to a 3-pin (Signal / V / GND)
+header — servos and the IRF520 magnet driver plug in directly without
+a fan-out breadboard, and the Microtronic / CP1 four-bit interface
+lands cleanly on the same headers. Crucially, the shield's `V` rail
+has a **separate power input** that we feed from the buck converter's
+6V output, with the shield's jumper set to *external*. This isolates
+servo motor current (up to ~2 A peak per servo when starting or
+stalled) from the Arduino's 5V regulator. A 1000 µF cap across the 6V
+rail at the shield input and a 100 µF cap across Arduino's 5V/GND
+absorb the inrush.
+
+### End-effector: 4-magnet ring + real pegs
+
+The hardest design decision was how to align washers in stacks. Two
+approaches were considered:
+
+**Rejected: pegless baseboard with self-locating recesses.** A single
+P25/20 electromagnet over a flat baseboard with shallow Forstner
+recesses to position the *bottom* washer. Simple to build, but
+intermediate washers in a stack of ≥3 have nothing constraining them
+relative to the centerline. Servo position error (~±1°, ~±2–3 mm at
+the arm tip) accumulates across the 15–31 moves required for N=4–5
+disks, and stacks drift and topple. The deeper problem with this
+design is that it asks the servos to do work that mechanics should be
+doing.
+
+**Chosen: 4-magnet ring head with central peg-clearance hole.** Real
+6 mm wooden dowel pegs are glued into the baseboard at the three peg
+positions. The end-effector is a ~50 mm head plate (aluminum or
+3D-printed PLA) with a central ~10 mm clearance hole and **four P15/5
+12V electromagnets** mounted in a ring around it. On descent, the
+peg passes *through* the head plate's central hole and *through* the
+washer's central hole; the magnet ring pulls the washer up against
+the underside of the head plate. On release, the washer drops onto
+the peg and **self-centers as it slides down**. Stack alignment is
+now a mechanical constraint, not a calibration constraint — every
+washer in the stack is aligned, not just the bottom one.
+
+The 4-magnet arrangement is what makes real pegs viable: a single
+magnet head would collide with a peg on descent; a ring of magnets
+around a central hole sidesteps the collision. Ring-shaped holding
+magnets in this form factor are not easily sourced, so four small
+ones in a ring approximate the same field geometry.
+
+All four coils are wired in parallel from a single **IRF520 MOSFET
+module** switched by Arduino pin 5 (PWM, 980 Hz). Total current is
+~1 A at 12V, comfortably within the IRF520's rating and the 12V/3A
+PSU's budget. The four parallel coils present a single equivalent
+inductance to the MOSFET, so one flyback diode (the IRF520 module's
+onboard one) protects the whole array.
+
+### Washer hierarchy
+
+The multi-magnet head puts geometric constraints on the disks: the
+smallest washer's ID must comfortably clear the peg, and its OD must
+be large enough that the ring of magnets actually overlaps the
+washer's steel annulus (not just hangs over empty space). With a 6 mm
+peg and a 4× P15/5 magnet ring at ~15 mm radius, the right hierarchy
+is **M10 / M12 / M16 fender washers** (OD ~30 / 37 / 50 mm,
+ID ~10.5 / 13 / 18 mm). Plain zinc-plated steel is fine — the magnet
+grabs through the plating.
+
+### Baseboard and arm
+
+Plywood baseboard (~30 × 15 cm × 12 mm), three blind holes drilled at
+the peg positions, three dowels glued in. The arm is an aluminum
+U-channel (~½" × ½" × 1/16" wall, ~20 cm long) running from the
+tilt-servo bracket out to the head plate.
+
+### Power topology
+
+A single 12V/3A wall supply feeds the whole system through a barrel
+jack to screw-terminal adapter:
+- Arduino VIN (12V) — onboard regulator produces 5V for logic.
+- IRF520 V+ (12V) — switches the magnet ring under PWM control.
+- Buck converter (12V → 6V) — supplies both servos and the Sensor
+  Shield's external V rail.
+
+All four ground domains (PSU, buck, IRF520, Arduino) plus the
+Microtronic / CP1 host ground tie to a single star point on the
+baseboard. The full diagram is in
+[`robot/wiring.md`](./robot/wiring.md).
+
+### Status
+
+Hardware is on order at time of writing. The Arduino sketch's
+"TUNE THESE" calibration block (peg angles, per-disk tilt levels,
+magnet PWM) will be measured empirically once the arm is assembled
+over a baseboard with the dowels glued in. The four-bit GPIO protocol
+is functionally tested in simulation only; first-light is pending the
+physical build.
+
 ## Sourcecode 
 
 Check out the [source subdirectory](./src/) for versions that you can

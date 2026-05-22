@@ -22,9 +22,9 @@
   │  SIG ◄ pin5         │ OUT− ──► GND  │   │   │  feeds logic)  │
   │  Vcc ◄ +5V (Arduino)│               │   │   │                │
   │           │         └───────┬───────┘   │   └────────────────┘
-  │  OUT+ ───►├──┐              │           │
-  │  OUT− ───►├──┤              │+6V        │GND
-  │           │  │              ▼           │
+  │  OUT+ ───►├──┐              │           │   (OUT+ / OUT− feed
+  │  OUT− ───►├──┤              │+6V        │GND  the parallel array
+  │           │  │              ▼           │    of 4× P15/5 coils)
   └───────────┘  │      ┌──────────────┐    │
                  │      │ Pan servo    │    │
                  │      │  RED  ◄ +6V  │    │
@@ -39,11 +39,17 @@
                  │      └──────────────┘    │
                  │                          │
                  ▼                          │
-        ┌───────────────┐                   │
-        │ Electromagnet │                   │
-        │  P25/20 12V   │                   │
-        │   wire1, wire2│                   │
-        └───────────────┘                   │
+        ┌─────────────────────────┐         │
+        │ Head plate (4× P15/5)   │         │
+        │ ┌────┐ ┌────┐           │         │
+        │ │ M1 │ │ M2 │ all 4     │         │
+        │ └────┘ └────┘ coils in  │         │
+        │ ┌────┐ ┌────┐ parallel  │         │
+        │ │ M3 │ │ M4 │ → IRF520  │         │
+        │ └────┘ └────┘ OUT+/OUT− │         │
+        │  (central peg-clearance │         │
+        │   hole, ~10 mm)         │         │
+        └─────────────────────────┘         │
                                             │
    ALL GROUNDS COMMON: PSU GND, buck GND,   │
    MOSFET GND, Arduino GND must all tie ────┘
@@ -101,13 +107,18 @@
 
 3. **IRF520 module flyback diode.** Most modules have one across the
    output; verify with a multimeter (diode-test from OUT+ to V+, should
-   read ~0.6V one direction). If absent, solder a 1N4007 directly across
-   the magnet's two leads (cathode to +12V side).
+   read ~0.6V one direction). If absent, solder a 1N4007 across the
+   parallel coil array (cathode to +12V side). One diode across the
+   parallel combination protects all four coils — they appear as a
+   single equivalent inductance to the MOSFET.
 
-4. **Magnet wire routing.** Run the magnet's two wires from the IRF520
-   output terminals along the underside of the arm to the tip. Use
-   stranded 22 AWG, leave a service loop at the pivot so the arm can
-   sweep without tugging the wires.
+4. **Magnet wire routing (4-coil head).** All four P15/5 coils on the
+   head plate are wired in parallel: tie all four "+" leads together
+   to one bus, all four "−" leads to the other. Run that single twisted
+   pair from the head plate, along the underside of the U-channel arm,
+   back to the IRF520 OUT+/OUT− terminals. Use stranded 22 AWG; leave
+   a service loop at the pan pivot so the arm can sweep without tugging.
+   Total coil current ~1 A at 12V.
 
 5. **Servo power separation.** Do NOT feed the servos from Arduino's 5V
    pin — the on-board regulator can't supply the ~2 A peak. The buck
