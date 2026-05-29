@@ -455,6 +455,282 @@ both programs (the Arduino sketch, the patched `HANOI-ROBOT.MIC` and
 described in Section 5) were designed and written by Claude during
 the conversation that produced this paper.
 
+## Calling Conventions and Code Walkthrough
+
+The article above covers the architectural ideas. This section is the
+concrete companion: address-by-address tables showing *how a recursive
+call is actually performed in code* on each machine. Read the article
+first for the *why*; come here for the *what does the next instruction
+do, and why is it there*.
+
+### Microtronic — Recursion by Bank-Swapping
+
+#### Why not just use `CALL` and `RET`?
+
+The Microtronic *does* have `CALL` (encoded `Bxxx`) and `RET` (`F07`)
+instructions — but they cannot be nested. There is exactly **one**
+hardware return-address register, and crucially, neither it nor the
+program counter is accessible to user code. A second `CALL` while a
+return address is still live overwrites that register; the original
+return address is gone, and `RET` will jump to the inner call site
+instead of the outer one. So `CALL`/`RET` is a *single-level*
+mechanism: usable for leaf subroutines (the shift routines, the
+return-marker dispatcher, the robot-protocol `send_move`), but
+fundamentally unusable for recursion, which requires arbitrarily
+deep nesting of saved return addresses.
+
+That's the puzzle the rest of this section solves. The recursive
+call is encoded as a plain `GOTO hanoi`, with the would-be return
+information pushed onto a *software* stack the program manages
+itself — and "decoded" not via the hardware return register but via
+a tiny dispatcher that reads a small-integer marker and branches
+explicitly. Leaf subroutines still use `CALL`/`RET` happily; the
+recursion does not.
+
+#### Register-bank layout
+
+The Microtronic has two banks of 16 registers, swapped by `EXRL`+`EXRM`.
+The recursive solver uses each bank for a different role:
+
+| Bank | Registers | Role |
+|---|---|---|
+| **A** (default after `EXRM`+`EXRL`) | `R0`–`R7` | Unused by the recursion. Free for the robot-protocol patch (`R0`/`R1` scratch, `R7` strobe state). |
+| **A**, high half | `R8`–`RF` | **Return stack**: small-integer markers (1, 2, 3) saying which call-site each pending return belongs to. Capacity 8 markers. |
+| **B** (visible only while bracketed by `EXRM`+`EXRL`) | `R0`–`RF` | **Value stack**: holds active call frames. Each frame is 4 registers wide (`n`, `source`, `dest`, `spare`), so the bank holds up to 4 simultaneously active frames. |
+
+The current top frame always lives at `RC`–`RF` in bank B:
+
+| Register | Field |
+|---|---|
+| `RF` | `n` (disk count for this call) |
+| `RE` | `source` peg |
+| `RD` | `dest` peg |
+| `RC` | `spare` peg |
+
+#### The recursive call as a code pattern
+
+A recursive call consists of: (1) push the current frame down the
+value stack, (2) write the new args into the (now exposed) top slot,
+(3) push a return marker onto the return stack, (4) jump to `hanoi`.
+
+Here is the first recursive call site, at addresses `$15`–`$23`,
+which performs `hanoi(n-1, source, spare, dest)`:
+
+| Addr | Instr | Mnemonic | Effect |
+|---|---|---|---|
+| `$15` | `f0e` | `EXRM` | Switch to bank A (caller's view). |
+| `$16` | `b70` | `CALL $70` | Value-stack shift-down (call 1 of 4). |
+| `$17` | `b70` | `CALL $70` | Shift-down (call 2). |
+| `$18` | `b70` | `CALL $70` | Shift-down (call 3). |
+| `$19` | `b70` | `CALL $70` | Shift-down (call 4). After 4 shifts the old top frame has slid into `R8`–`RB` and the top 4 slots are stale duplicates of the old `RF`. |
+| `$1a` | `f0e` | `EXRM` | Back to bank B. |
+| `$1b` | `0bf` | `MOV RB→RF` | New `n` = caller's `n` (still at `RB` after the shift). |
+| `$1c` | `71f` | `SUBI 1, RF` | `n := n - 1`. |
+| `$1d` | `0ae` | `MOV RA→RE` | New `source` = caller's source. |
+| `$1e` | `09c` | `MOV R9→RC` | New `spare` = caller's dest. |
+| `$1f` | `08d` | `MOV R8→RD` | New `dest` = caller's spare. |
+| `$20` | `f0e` | `EXRM` | Back to bank A for the return-stack push. |
+| `$21` | `b50` | `CALL $50` | Return-stack shift-down (makes room for a new marker at `RF`). |
+| `$22` | `12f` | `MOVI 2, RF` | Push return marker = 2. |
+| `$23` | `c0d` | `GOTO $0d` | Jump to `hanoi` entry. |
+
+The crucial trick is in `$1d`–`$1f`: the *current* registers `R8`–`RB`
+hold the *caller's* `spare`, `dest`, `source`, `n` (in that order, because
+the 4-step shift relocated them there). The setup code reads them out of
+their post-shift positions and writes the new top frame, swapping `dest`
+and `spare` as the recursive call requires.
+
+The second recursive call (`hanoi(n-1, spare, dest, source)`) lives at
+`$2e`–`$3b` and follows exactly the same shape, but with a different
+permutation of source/dest/spare in lines `$35`–`$37` and a different
+marker (3 instead of 2) at line `$3a`.
+
+#### Returning from a recursive call: the dispatcher
+
+A C-style call stack stores *return addresses*. The Microtronic has
+neither an indirect jump nor a user-accessible program counter, and
+its hardware `CALL`/`RET` register cannot be nested (see above). So
+this machine instead stores *return markers* — tiny integers, one
+per call site — and decodes them at a single dispatch table. At the end of
+both the base case (`$14`) and the second recursive case (`$41`), the
+program does `GOTO $b0` (encoded `cb0`), and the dispatcher at `$b0`
+decides where to actually go:
+
+| Addr | Instr | Mnemonic | Effect |
+|---|---|---|---|
+| `$b0` | `91f` | `CMPI 1, RF` | Marker == 1? |
+| `$b1` | `E0b` | `BRZ $0b` | Yes → return to main caller (post-`hanoi` halt path). |
+| `$b2` | `92f` | `CMPI 2, RF` | Marker == 2? |
+| `$b3` | `E24` | `BRZ $24` | Yes → return to first-recursive-call continuation. |
+| `$b4` | `93f` | `CMPI 3, RF` | Marker == 3? |
+| `$b5` | `E3c` | `BRZ $3c` | Yes → return to second-recursive-call continuation. |
+| `$b6` | `F00` | `HALT` | Unrecognised marker → halt with error indication. |
+
+The dispatch lookup is linear (three `CMPI`+`BRZ` pairs) and the
+"address table" is implicit in the branch targets — there is no
+indirect-jump opcode, so the machine encodes the indirection in code,
+not in data. Three call sites mean three markers; a deeper algorithm
+would extend the table.
+
+At the return target (e.g. `$24` after the first recursive call), the
+caller restores its frame:
+
+| Addr | Instr | Mnemonic | Effect |
+|---|---|---|---|
+| `$24` | `b60` | `CALL $60` | Return-stack shift-up (pop the consumed marker). |
+| `$25`–`$28` | `b90` × 4 | `CALL $90` | Value-stack shift-up four times (restore caller's frame to `RC`–`RF`). |
+
+After this, execution continues with the caller's frame back in place.
+
+#### Push and pop: the shift-register stack
+
+Without indirect addressing there's no stack *pointer*; instead, the
+data itself shifts past a fixed access point (the top of the register
+file). The value-stack shift-down routine (`$70`–`$83`) is the engine:
+
+| Addr | Instr | Mnemonic | Effect |
+|---|---|---|---|
+| `$70` | `f0d` | `EXRL` | Enter bank B (low half). |
+| `$71` | `f0e` | `EXRM` | Enter bank B (high half). |
+| `$72`–`$80` | `010`, `021`, `032`, …, `0fe` | `R0:=R1; R1:=R2; … ; RE:=RF` | One-position shift down. `R0`'s old value is lost; `RF` is duplicated into `RE` and is itself untouched. |
+| `$81` | `f0e` | `EXRM` | Leave bank B (high). |
+| `$82` | `f0d` | `EXRL` | Leave bank B (low). |
+| `$83` | `f07` | `RET` | Return to caller. |
+
+Each call shifts the whole 16-register bank down by one slot. Four
+calls make room for a 4-register frame. Bank-B-only operation is
+enforced by the `EXRL`+`EXRM` bracket at the start and end, which is
+what makes the value stack invisible from bank A and lets the
+return-marker dispatch (in bank A) and the robot-protocol patch (also
+in bank A, registers `R0`/`R1`/`R7`) coexist with it.
+
+The shift-up routine (`$90`–`$a3`) is the mirror image: `RF:=RE;
+RE:=RD; … ; R1:=R0`, again bracketed by bank-swaps. The return-stack
+shift routines (`$50`–`$57` and `$60`–`$67`) follow the same idiom but
+only touch `R8`–`RF` and aren't bracketed by bank-swaps — they always
+operate on bank A.
+
+### Kosmos CP1 — Recursion by Memory-Backed Stacks
+
+The CP1 has indirect addressing (sort of: `lia`/`ais` use a memory cell
+as a pointer), so it can implement stacks the textbook way — in memory,
+with pointers in fixed cells. The recursive solver uses **four parallel
+stacks**: three value stacks (one each for `source`, `dest`, `spare`),
+and a return-address stack.
+
+#### Memory layout
+
+| Cells | Role |
+|---|---|
+| `145` | Current disk count (`n`). Single-cell; updated in place across calls. |
+| `146` | `source` value-stack pointer. |
+| `147` | `spare` value-stack pointer. |
+| `148` | `dest` value-stack pointer. |
+| `149` | Return-stack pointer. |
+| `150`, `151` | Constants `1` and `3` (the latter is the value-stack stride). |
+| `200`–`239` | Value stack region (13 frames × stride 3). |
+| `240`–`255` | Return stack region (16 entries). |
+
+The three value stacks are *interleaved* at stride 3: source frame `k`
+is at cell `200+3k`, spare frame `k` at `201+3k`, dest frame `k` at
+`202+3k`. The three pointers in cells `146`/`147`/`148` are advanced
+together by `save_and_push` so they always point to the current
+frame's slot in each of the three columns.
+
+#### The recursive call as a code pattern
+
+A CP1 recursive call: (1) load a return label, (2) save and push the
+old frame, (3) overwrite the active slots with the new args, (4) push
+the return-address marker, (5) `spu` (jump-and-save) into `hanoi`.
+
+The first recursive call site, at `020`–`034`, performs
+`move_tower(disk-1, source, spare, dest)`:
+
+| Addr | Instr | Effect |
+|---|---|---|
+| `023` `ako 04.026` | Load `26` (= label_0 address) into accumulator. |
+| `024` `abs 06.143` | Store accumulator into cell `143` (`simple return 1`). |
+| `025` `spu 09.098` | Call `save_and_push` — copies current frame onto the value stacks and advances all pointers. |
+| `026` `lda 05.140` | Load saved source (from scratch cell `140`). |
+| `027` `ais 20.146` | Store via pointer `146` → write into new top-of-source. |
+| `028` `lda 05.142` | Load saved dest. |
+| `029` `ais 20.148` | Store into the new spare slot — `dest` becomes new `spare`. |
+| `030` `lda 05.141` | Load saved spare. |
+| `031` `ais 20.147` | Store into the new dest slot — `spare` becomes new `dest`. |
+| `032` `ako 04.035` | Load return address `35`. |
+| `033` `ais 20.149` | Push onto return stack via pointer `149`. |
+| `034` `spu 09.020` | Jump to `move_tower` entry. |
+
+Steps `028`–`031` are the swap that makes recursion happen: the new
+`dest` is the old `spare`, and the new `spare` is the old `dest`. The
+second recursive call (`041`–`052`) is structurally identical with a
+different permutation (`044`–`049`) and a different return label
+pushed at `050`.
+
+#### `save_and_push`: the call's prologue
+
+| Addr | Instr | Effect |
+|---|---|---|
+| `098` `lda 05.145` | Load `n`. |
+| `099` `sub 08.150` | `n - 1` (constant `1` lives at `150`). |
+| `100` `abs 06.145` | Store new `n`. |
+| `101`–`106` | Save source, dest, spare into scratch cells `140`/`141`/`142` so the call-site setup code can read them. |
+| `107`–`115` | Advance each of the three value-stack pointers by 3 (the stride). |
+| `116`–`118` | Advance return-stack pointer by 1. |
+| `119` `siu 21.143` | Return via `simple return 1`. |
+
+The fact that `save_and_push` snapshots the old frame into scratch
+cells *before* advancing the pointers is what lets the call-site code
+permute `(source, dest, spare)` into the new frame slots without
+needing temporaries of its own.
+
+#### `pop_and_restore`: the call's epilogue
+
+This is `save_and_push` run backwards — pointers move down by 3 (and
+the return-stack pointer down by 1), and `n` increments back to its
+caller's value:
+
+| Addr | Instr | Effect |
+|---|---|---|
+| `120`–`122` | `n += 1` (constant `1` at `150`). |
+| `123`–`131` | Decrement source/dest/spare stack pointers by 3. |
+| `132`–`134` | Decrement return-stack pointer by 1. |
+| `135` `siu 21.143` | Return. |
+
+After `pop_and_restore`, the *frames remain in memory* but the
+pointers now reference the caller's row again, so reads from the
+current pointers yield the caller's `source`/`dest`/`spare`.
+
+#### The return block
+
+At the end of `move_tower` (cells `056` and `060`), the code does
+`spu 09.136`, which is the return block:
+
+| Addr | Instr | Effect |
+|---|---|---|
+| `136` `lia 19.149` | Load the top-of-return-stack via pointer `149`. |
+| `137` `abs 06.143` | Store it into `simple return 1`. |
+| `138` `siu 21.143` | Return — `siu` is an indirect jump through the cell, so this lands at the saved label. |
+
+The CP1's `siu` instruction is the indirect-jump primitive the
+Microtronic lacks; the CP1 can therefore use real return *addresses*
+on its return stack, where the Microtronic must reduce them to
+small-integer markers and decode them at a compile-time dispatch
+table.
+
+### Summary of the two strategies
+
+| | Microtronic | CP1 |
+|---|---|---|
+| Return mechanism | Small-integer marker + linear `CMPI`/`BRZ` dispatch table. | Real return address pushed onto an in-memory stack, popped via the `siu` indirect-jump. |
+| Value-stack storage | Bank B of the register file. Stack is a shift-register; "push" = shift all 16 registers down by 4. | A memory region (`200`–`239`), three parallel stacks at stride 3, three pointers in fixed cells. |
+| Maximum recursion depth | 4 frames (16 registers / 4-wide frame). | 13 frames (40 cells / stride 3). |
+| What's missing | No hardware call stack; no indirect addressing. Both worked around. | Has indirect addressing (`lia`/`ais`/`siu`), so the implementation is textbook. |
+
+The Microtronic implementation is the more interesting one precisely
+because of what it lacks — and that's the technique the article
+unpacks at length.
+
 ## Designing a Hanoi Robot
 
 The article above covers the *software* side of the robot — the
