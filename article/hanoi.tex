@@ -206,6 +206,95 @@ the three pointers are advanced together, an indirect load of, say,
 \texttt{*source} yields the source peg of the current frame without
 further work.
 
+\subsection{Code walkthrough}
+
+The full recursive-call site, prologue, and epilogue are short enough
+to read end-to-end. The first recursive call in \texttt{move\_tower}
+performs \texttt{move\_tower(disk-1, source, spare, dest)}; its code
+sits at cells 023--034:
+
+\begin{lstlisting}
+023 ako 04.026   # load 26 (= label_0)
+024 abs 06.143   # write into 'simple return 1'
+025 spu 09.098   # call save_and_push
+026 lda 05.140   # accu = saved source
+027 ais 20.146   # store into new top of source stack
+028 lda 05.142   # accu = saved dest
+029 ais 20.148   # store into new top of dest stack ...
+                 # ... but used as the new SPARE: dest -> spare
+030 lda 05.141   # accu = saved spare
+031 ais 20.147   # store into new top of spare stack ...
+                 # ... used as the new DEST: spare -> dest
+032 ako 04.035   # load label_2 address
+033 ais 20.149   # push onto return stack
+034 spu 09.020   # GOTO move_tower
+\end{lstlisting}
+
+\noindent
+Lines 028--031 are the swap that makes the recursion work: the new
+\texttt{dest} is the old \texttt{spare}, and the new \texttt{spare}
+is the old \texttt{dest}. The reads come from scratch cells
+140/141/142 because \texttt{save\_and\_push} has already snapshotted
+the caller's frame there before advancing the pointers.
+
+The prologue, \texttt{save\_and\_push}, occupies cells 098--119:
+
+\begin{lstlisting}
+098 lda 05.145   # accu = n
+099 sub 08.150   # n - 1
+100 abs 06.145   # write back
+101 lia 19.146   # accu = source (indirect load)
+102 abs 06.140   #   ... save to scratch
+103 lia 19.148   # accu = dest
+104 abs 06.141   #   ... save to scratch
+105 lia 19.147   # accu = spare
+106 abs 06.142   #   ... save to scratch
+107 lda 05.146   # advance *source by 3
+108 add 07.151   #   (cell 151 holds 3)
+109 abs 06.146
+110 lda 05.148   # advance *dest by 3
+111 add 07.151
+112 abs 06.148
+113 lda 05.147   # advance *spare by 3
+114 add 07.151
+115 abs 06.147
+116 lda 05.149   # advance *return by 1
+117 add 07.150   #   (cell 150 holds 1)
+118 abs 06.149
+119 siu 21.143   # return via 'simple return 1'
+\end{lstlisting}
+
+\noindent
+The pattern is: snapshot the live frame into scratch, advance every
+stack pointer, return. The call-site setup code, equipped with the
+snapshot and the new (advanced) pointers, can now permute the
+arguments and write them into the new top of each value stack
+without needing temporaries of its own.
+
+The epilogue, \texttt{pop\_and\_restore}, at cells 120--135 is the
+mirror image: increment \texttt{n}, retreat all four stack pointers,
+return. The frames themselves are left untouched in memory; the
+restoration is purely a pointer reset, which is one of the small
+elegances the indirect-addressing primitives \texttt{LIA}/\texttt{AIS}
+buy on this machine.
+
+Finally, the \emph{return block} at cells 136--138 does the indirect
+jump that the Microtronic cannot:
+
+\begin{lstlisting}
+136 lia 19.149   # accu = top-of-return-stack (the saved label)
+137 abs 06.143   # write into 'simple return 1'
+138 siu 21.143   # indirect jump through 143 -- lands at the label
+\end{lstlisting}
+
+\noindent
+Cell 143 is the same \emph{simple return 1} slot that
+\texttt{save\_and\_push} also returns through; the return block
+overwrites it with the popped address before jumping. The
+\texttt{SIU} instruction is the irreducible primitive the
+Microtronic lacks, and is what lets the CP1 implementation look,
+overall, like a textbook recursive program.
+
 \subsection{Capacity}
 
 The CP1 program supports up to thirteen disks within the default
@@ -229,6 +318,15 @@ nearly every primitive that makes the CP1 program straightforward:
     operands as register or constant nibbles.
   \item There is no indirect jump; control transfer is by absolute
     eight-bit address only.
+  \item There \emph{is} a hardware \texttt{CALL}/\texttt{RET} pair,
+    but it relies on a single return-address register that is neither
+    user-accessible nor nestable. A second \texttt{CALL} issued while
+    a return address is still live overwrites that register; the
+    outer return address is then lost, and the subsequent
+    \texttt{RET} jumps to the inner call site. The hardware
+    \texttt{CALL}/\texttt{RET} mechanism is therefore confined to
+    \emph{leaf} subroutines---it cannot, by itself, support
+    recursion.
   \item There is, however, a curiosity that turns out to matter
     enormously: \emph{the register file is actually two banks of
     sixteen registers each}, with three exchange instructions
@@ -330,14 +428,62 @@ this routine shifts the entire bank-B register file by one position
 \emph{without} touching bank~A. Four calls in a row create the
 four-slot hole that a push requires.
 
+A complete recursive call site brings the pieces together. The
+listing below is the program's first recursive call, performing
+\texttt{MoveTower(n-1, source, spare, dest)}:
+
+\begin{lstlisting}
+15: f0e   # EXRM (to bank A, caller-visible side)
+16: b70   # CALL value-stack shift-down (1 of 4)
+17: b70   # ...
+18: b70   # ...
+19: b70   # 4 shifts: four-slot hole opens at top of bank B
+1a: f0e   # EXRM (to bank B, where the new frame goes)
+1b: 0bf   # MOV RB->RF: new n = caller's n
+1c: 71f   # SUBI 1, RF: n := n - 1
+1d: 0ae   # MOV RA->RE: new source = caller's source
+1e: 09c   # MOV R9->RC: new spare  = caller's dest
+1f: 08d   # MOV R8->RD: new dest   = caller's spare
+20: f0e   # EXRM (back to bank A)
+21: b50   # CALL return-stack shift-down: room for a new marker
+22: 12f   # MOVI 2, RF: push return marker = 2
+23: c0d   # GOTO MoveTower entry
+\end{lstlisting}
+
+\noindent
+Two points are worth dwelling on. First, the four \texttt{CALL}s at
+\$16--\$19 are leaf calls---they use the hardware return register,
+never nest into one another, and so the single-level
+\texttt{CALL}/\texttt{RET} mechanism noted earlier is no obstacle.
+The recursive call itself, at \$23, is deliberately \emph{not} a
+\texttt{CALL} but a plain \texttt{GOTO}; the would-be return
+information is recorded in the software return stack at \$21--\$22,
+not in the hardware return register, which is left undisturbed.
+
+Second, the new frame's \texttt{source}, \texttt{dest}, and
+\texttt{spare} fields are read from \texttt{R8}, \texttt{R9}, and
+\texttt{RA} on lines \$1d--\$1f, not from the \texttt{RC}--\texttt{RE}
+positions where they originally lived. The four shift-down calls have
+relocated them four positions toward the lower indices, and the
+setup code knows this---it reads them in their post-shift positions
+and writes them into the new top frame, performing the
+\textit{dest}\,$\leftrightarrow$\,\textit{spare} swap that the
+recursive call requires. The second recursive call, at \$2e--\$3b,
+follows the same shape with the opposite permutation and a different
+return marker.
+
 \subsection{The return mechanism}
 
-The Microtronic has no indirect jump. After a recursive call returns,
+The hardware \texttt{CALL}/\texttt{RET} pair cannot nest, and the
+Microtronic has neither a user-accessible program counter nor an
+indirect jump. So even if the program were willing to save the return
+address by hand, there is nowhere to save it \emph{from} and no way
+to jump back to it \emph{through}. After a recursive call returns,
 control must somehow find its way back to one of three possible
 continuation sites in the body of \texttt{MoveTower}: the point after
-the first recursive call, the point after the second, or the top-level
-caller in main. Conventional return-address pushing is therefore
-unworkable.
+the first recursive call, the point after the second, or the
+top-level caller in main. Conventional return-address pushing is
+unworkable on all three counts.
 
 The implementation solves this with a tiny \emph{return marker}: each
 call pushes a small integer onto a one-register-deep return stack (in
@@ -360,6 +506,23 @@ With only three distinct call sites in the program, three markers
 suffice. The dispatch costs a handful of compare-and-branch
 instructions per return, which is cheap relative to the
 sixty-instruction cost of pushing and popping a value-stack frame.
+
+At the chosen return target, the caller's frame is reinstated by
+running the push sequence in reverse. After the dispatch at
+\$b3 sends control to \$24:
+
+\begin{lstlisting}
+24: b60   # CALL return-stack shift-up: pop the consumed marker
+25: b90   # CALL value-stack shift-up (1 of 4)
+26: b90   # ...
+27: b90   # ...
+28: b90   # 4 shifts: caller's frame back at RC..RF in bank B
+\end{lstlisting}
+
+\noindent
+After \$28, the caller's \texttt{n}, \texttt{source}, \texttt{dest}
+and \texttt{spare} are once again the top frame of the value stack,
+and execution resumes with the caller none the wiser.
 
 \subsection{Capacity}
 
