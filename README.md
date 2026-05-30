@@ -88,6 +88,27 @@ not anticipate. The CP1 teaches you what *a* computer looks like.
 The Microtronic teaches you what a computer might be made to do when
 the architecture refuses to help.
 
+A clarification worth making at the outset, because the rest of the
+article would otherwise be misleading: on neither machine does the
+user program the underlying microcontroller directly. The Intel 8049
+inside the CP1 and the TI TMS1600 inside the Microtronic each run a
+fixed firmware program — an interpreter — that implements a
+higher-level instruction set of the manufacturer's own design. The
+programs entered through the hexadecimal keypad are sequences of
+these higher-level operations; the 8049 or TMS1600 native machine
+code beneath them is frozen in ROM and uninvolved in any program the
+user writes. When we refer in what follows to "the CP1's instruction
+set" or "the Microtronic's opcodes," it is always the *interpreter's*
+instruction set that is meant; the underlying silicon ISAs play no
+role in the discussion. In effect, each machine exposes its own small
+virtual CPU to the learner — a vastly more austere relative of the
+idea behind a Java Virtual Machine or a Smalltalk image, but the same
+trick at the foundation. All the architectural constraints discussed
+below — the missing indirect addressing, the un-nestable
+`CALL`/`RET`, the four-bit-wide registers, the inaccessible program
+counter — are constraints of the *interpreter*, not of the silicon
+it runs on.
+
 We will spend the bulk of this article on the Microtronic
 implementation, because that is the more interesting story, and only
 briefly summarise the CP1 program, which is in essence the form one
