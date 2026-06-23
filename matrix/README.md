@@ -10,6 +10,10 @@ move, and animates the disk **lift → traverse → drop**. Disks are rainbow-co
 by size; three blue pegs rise from a bright blue base line. The display
 **auto-resets** for each new run.
 
+![Starting layout — five rainbow disks on three blue pegs over a blue base](hanoi_layout.png)
+
+![A full four-disk solve animated on the panel](hanoi_demo.gif)
+
 It reuses the exact **4-bit move protocol** from the [`robot`](../robot/)
 extension, so the CP1 program (`robot/HANOIC-CP1-ROBOT.txt`) needs no changes.
 
