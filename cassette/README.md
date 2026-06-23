@@ -9,6 +9,15 @@ Plus a decoder to read real CP1 tapes back.
 > tutorial and examples:
 > **[kosmos-cp1-devel-toolchain](https://github.com/lambdamikel/kosmos-cp1-devel-toolchain)**.
 
+## Ready-made tapes
+
+Don't want to generate them? Two prebuilt WAVs are on the
+**[`cassette-tapes` release](https://github.com/lambdamikel/towers-of-hanoi/releases/tag/cassette-tapes)**:
+- **`hanoi-original.wav`** — solves Hanoi and shows each move on the CP1's own display;
+- **`hanoi-matrix.wav`** — emits moves over Port 2 to drive the [`matrix/`](../matrix/) LED panel (or the [`robot/`](../robot/)).
+
+Play one into the CP2 with the CP1 in `CAL` mode. (Needs the CP3 memory expansion.)
+
 The cassette format is **not documented numerically anywhere** — the CP2 manual
 only names the two FSK tones symbolically and no emulator implements CP2. It was
 **reverse-engineered here from a digitized real CP2 save** (`hanoi-cp1.wav`) and
