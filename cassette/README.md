@@ -5,6 +5,10 @@ cell**: assemble a listing into a memory image, turn it into a **cassette WAV**,
 and play that into the **CP2 Kassetten-Modul** (the CP1's `CAL` cassette-load).
 Plus a decoder to read real CP1 tapes back.
 
+> These tools also live as a standalone, more general project with an assembler
+> tutorial and examples:
+> **[kosmos-cp1-devel-toolchain](https://github.com/lambdamikel/kosmos-cp1-devel-toolchain)**.
+
 The cassette format is **not documented numerically anywhere** — the CP2 manual
 only names the two FSK tones symbolically and no emulator implements CP2. It was
 **reverse-engineered here from a digitized real CP2 save** (`hanoi-cp1.wav`) and
@@ -31,7 +35,8 @@ the image layout matches the [asig/kosmos-cp1](https://github.com/asig/kosmos-cp
 ## Tools
 
 ```sh
-# 1. listing -> memory image  (reads the numeric OP.operand; mnemonic ignored)
+# 1. assemble a listing -> memory image  (real assembler: mnemonics, labels,
+#    DATA/ORG/EQU; legacy numeric listings like HANOIC-CP1-ROBOT.txt also work)
 python3 cp1asm.py  ../robot/HANOIC-CP1-ROBOT.txt  hanoi.bin
 
 # 2. memory image -> cassette WAV
