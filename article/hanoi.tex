@@ -60,9 +60,11 @@ path. We show how recursion can nonetheless be realised on the
 Microtronic by exploiting its rarely-used dual register bank as a
 substrate for two hand-built stacks, and by replacing indirect
 returns with a small marker-dispatch table. We compare the two
-implementations as engineering artefacts and conclude with a brief
-account of physically embodying the algorithm by having either host
-drive an Arduino-based robotic arm via a simple four-bit protocol.
+implementations as engineering artefacts and conclude with an
+account of physically embodying the algorithm: each host drives an
+Arduino over a simple four-bit protocol, realised here as a live
+$64\times32$ LED-matrix animation of the solve, with a pan/tilt robot
+arm as the original target.
 \end{abstract}
 
 \section{Introduction}
@@ -119,10 +121,12 @@ We will spend the bulk of this article on the Microtronic
 implementation, because that is the more interesting story, and only
 briefly summarise the CP1 program, which is in essence the form one
 would write if given the choice of platform. We close with a short
-discussion of the recent extension of both programs to physically
-drive a Hanoi-solving robot through an Arduino-mediated digital
-protocol, demonstrating that the original programs were really doing
-useful work, not merely simulating it on a seven-segment display.
+discussion of the recent extension of both programs to drive external
+hardware through an Arduino-mediated digital protocol---realised as a
+live LED-matrix animation of the solve, with a Hanoi-solving robot arm
+as the motivating goal---demonstrating that the original programs were
+really doing useful work, not merely simulating it on a seven-segment
+display.
 
 The recursive procedure under discussion is, throughout, the
 following:
@@ -601,13 +605,32 @@ existence, until this implementation was written in early 2024.
 \section{Physical Embodiment}
 \label{sec:robot}
 
-Both implementations have been extended to drive a physical
-Towers-of-Hanoi-solving robot. The robot is mechanically simple: a
-two-degree-of-freedom pan/tilt arm with an electromagnet at the tip,
-controlled by an Arduino. The Arduino performs all servo motion
-planning, magnet pulse-width control, and disk-position tracking; the
-vintage host need only emit a stream of high-level
-\(\langle\textit{source},\textit{dest}\rangle\) move commands.
+Both programs have been extended to drive external hardware over a
+deliberately minimal digital protocol: the vintage host emits a stream
+of high-level \(\langle\textit{source},\textit{dest}\rangle\) move
+commands and an Arduino does everything else. The original target was a
+Towers-of-Hanoi-solving robot---a two-degree-of-freedom pan/tilt arm
+with an electromagnet at the tip, the Arduino handling all servo motion
+planning, magnet pulse-width control, and disk-position tracking. That
+arm is still under construction; the first embodiment actually
+\emph{realised} drives a different actuator over the very same
+protocol---a $64\times32$ RGB LED matrix on which the disks slide
+between three pegs, rainbow-coloured by size (Figure~\ref{fig:matrix}).
+The vintage host still does the real work---the recursion and the
+optimal move sequence---while a second Arduino merely renders each move
+it is handed.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{hanoi-matrix.jpg}
+  \caption{The realised embodiment: a Kosmos CP1 (right) driving a
+    $64\times32$ RGB LED matrix (left) through the four-bit protocol,
+    mid-solve. The CP1 runs the recursion and streams each move to an
+    Arduino that animates the disks; the CP2 cassette module (top)
+    loads the program. A full solve is online at
+    \url{https://youtu.be/CkCNBzWRjq4}.}
+  \label{fig:matrix}
+\end{figure}
 
 The communication protocol is deliberately minimal so that it can fit
 inside either machine's tiny I/O envelope. Four output lines from the
@@ -644,7 +667,17 @@ operate on bank~B's copies; the active-bank values are restored on
 exit. The strobe bit therefore lives in $\mathtt{R_7}$ of bank~A and
 survives the full depth of the recursion without further machinery.
 
-On the CP1, the equivalent state is simply a memory cell.
+On the CP1 the equivalent state is simply a memory cell---though
+bringing the real hardware up turned an undocumented corner of the
+machine into a concrete bug. The CP1's \texttt{P2A} (Port-2 output)
+instruction latches \emph{any} non-zero accumulator as a logic~1, not
+the least-significant bit; a strobe implemented as an incrementing
+counter therefore jammed high after the first move, and the
+receiver---correctly---never saw a second edge. Rewriting the toggle as
+\(\mathit{strobe} := 1 - \mathit{strobe}\), so the emitted value is
+always exactly $0$ or $1$, fixed it. The episode is a reminder that
+these interpreters are documented only to the depth someone has so far
+needed.
 
 \section{Closing Remarks}
 
@@ -663,12 +696,13 @@ Microtronic's existence, it had not been written down. It is in the
 nature of obscure platforms that they accumulate such secrets, and in
 the nature of long acquaintance that one occasionally notices them.
 
-That the same machines can now drive a physical robot, through a
+That the same machines can now drive live external hardware, through a
 fifty-cent serial protocol to a five-dollar microcontroller, is a
 fitting late chapter. The TMS1600 and the 8049 were designed to teach
 people what computers were; they are now, against considerable odds,
-teaching one of them to move steel washers between three pegs in a
-provably-optimal sequence. The teaching, it appears, was effective.
+animating a provably-optimal Towers-of-Hanoi solve on a bank of
+LEDs---and, once the arm is finished, moving real disks between three
+pegs in the same sequence. The teaching, it appears, was effective.
 
 \section*{Authorship Note}
 
@@ -677,23 +711,29 @@ working from extended discussions of the source code with the
 human co-author. The two recursive Towers of Hanoi
 implementations themselves---the Microtronic 2090 program and the
 Kosmos CP1 program---were written by hand by the human co-author
-(LambdaMikel) and should be credited accordingly. The robot-control
-extensions to both programs (the Arduino sketch, the patched
-\texttt{HANOI-ROBOT.MIC} and \texttt{HANOIC-CP1-ROBOT.txt}, and the
-shared four-bit GPIO protocol described in
-Section~\ref{sec:robot}) were designed and written by Claude during
-the conversation that produced this paper.
+(LambdaMikel) and should be credited accordingly. The hardware-driving
+extensions to both programs (the Arduino sketches for the robot arm and
+the LED-matrix renderer, the patched \texttt{HANOI-ROBOT.MIC} and
+\texttt{HANOIC-CP1-ROBOT.txt}, and the shared four-bit GPIO protocol
+described in Section~\ref{sec:robot}) were designed and written by
+Claude---the initial extension in the conversation that produced this
+paper, and the CP1 hardware bring-up and \texttt{P2A} fix in a later
+one.
 
 \appendix
 
 \section{Source-Code Availability}
 
 The reference implementations for both machines, and the Arduino
-firmware for the robot, are available at
+firmware for the robot arm and the LED-matrix renderer, are available at
 \url{https://github.com/lambdamikel/towers-of-hanoi}. The opcode
 reference used in decoding the Microtronic source is drawn from the
 emulator code at \url{https://github.com/lambdamikel/Busch-2090}; the
 Kosmos CP1 manual is available via the Internet Archive at
-\url{https://archive.org/details/cp-1-manual}.
+\url{https://archive.org/details/cp-1-manual}. A standalone CP1
+development toolchain---assembler, cassette-tape tools, and the
+emulator used to reproduce the \texttt{P2A} behaviour discussed in
+Section~\ref{sec:robot}---is at
+\url{https://github.com/lambdamikel/kosmos-cp1-devel-toolchain}.
 
 \end{document}

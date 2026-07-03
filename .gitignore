@@ -4,3 +4,9 @@ __pycache__/
 
 # Large generated cassette tapes — regenerate with robot/tapes/build-tapes.sh
 robot/tapes/*.wav
+
+# LaTeX build artifacts (keep the .tex and the built .pdf)
+article/*.aux
+article/*.log
+article/*.out
+article/*.toc
