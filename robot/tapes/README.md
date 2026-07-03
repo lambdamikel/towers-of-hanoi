@@ -23,8 +23,9 @@ from the images with the cassette toolchain:
 ```
 
 Then play a `.wav` into the **CP2** module with the CP1 in `CAL` mode. (Loading a
-256-cell image is ~7 minutes of audio.) Prebuilt tapes may also be attached to a
-GitHub Release, mirroring the `cassette/` project's convention.
+256-cell image is ~7 minutes of audio.) The prebuilt `hanoi-robot-*` tapes are
+also on the [`cassette-tapes`
+release](https://github.com/lambdamikel/towers-of-hanoi/releases/tag/cassette-tapes).
 
 ## Making a different disk count
 

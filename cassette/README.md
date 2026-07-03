@@ -11,10 +11,12 @@ Plus a decoder to read real CP1 tapes back.
 
 ## Ready-made tapes
 
-Don't want to generate them? Two prebuilt WAVs are on the
+Don't want to generate them? Prebuilt WAVs are on the
 **[`cassette-tapes` release](https://github.com/lambdamikel/towers-of-hanoi/releases/tag/cassette-tapes)**:
 - **`hanoi-original.wav`** — solves Hanoi and shows each move on the CP1's own display;
-- **`hanoi-matrix.wav`** — emits moves over Port 2 to drive the [`matrix/`](../matrix/) LED panel (or the [`robot/`](../robot/)).
+- **`hanoi-matrix.wav`** — emits moves over Port 2 to drive the [`matrix/`](../matrix/) LED panel (or the [`robot/`](../robot/));
+- **`hanoi-robot-{3,5,6,7}disk.wav`** and **`hanoi-robot-6disk-endless.wav`** — the [`robot/`](../robot/) program (with the `1 - strobe` fix) at several disk counts, plus an endless-loop build;
+- **`hanoi-real-cassette-recording.wav`** — a genuine CP1/CP2 save; the real tape this format was reverse-engineered from.
 
 Play one into the CP2 with the CP1 in `CAL` mode. (Needs the CP3 memory expansion.)
 
