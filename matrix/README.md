@@ -10,6 +10,10 @@ move, and animates the disk **lift → traverse → drop**. Disks are rainbow-co
 by size; three blue pegs rise from a bright blue base line. The display
 **auto-resets** for each new run.
 
+[![The real rig — a Kosmos CP1 (right) driving the 64×32 panel (left) mid-solve over the four-bit move protocol; the CP2 cassette module (top) loads the program — click to watch on YouTube](hanoi-matrix.jpg)](https://youtu.be/CkCNBzWRjq4)
+
+▶ **[Watch the full solve on YouTube](https://youtu.be/CkCNBzWRjq4)**
+
 ![Starting layout — five rainbow disks on three blue pegs over a blue base](hanoi_layout.png)
 
 ![A full four-disk solve animated on the panel](hanoi_demo.gif)

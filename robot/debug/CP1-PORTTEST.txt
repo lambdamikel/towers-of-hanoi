@@ -1,0 +1,70 @@
+#
+# CP1 PORT-TEST -- emit-only, NO handshake.
+# Debugging aid for the Hanoi robot protocol.
+#
+# Purpose: prove the OUTPUT path in isolation -- Port 2 data + strobe, the CP1
+# ->  Mega wiring, and the Mega's decode -- WITHOUT the BUSY handshake that the
+# real program (HANOIC-CP1-ROBOT.txt) depends on. If this test animates/prints
+# moves but the real program does not, the fault is the BUSY input, not output.
+#
+# It loops forever, alternating two move codes with a strobe toggle and a ~2 s
+# delay between them, and NEVER reads BUSY:
+#     code 1 = 001 = move 1->2       (D0=1 D1=0 D2=0)
+#     code 6 = 110 = move 3->2       (D0=0 D1=1 D2=1)
+# Alternating these flips all three data bits, so every data line gets exercised.
+#
+# How to use:
+#   1. Load this via the cassette WAV (cp1asm -> cp1wav) or key it in.
+#   2. Run the Mega with debug/cp1_sniffer  (best -- it never blocks), OR the
+#      normal matrix sketch.
+#   3. Start at 000: you should see the sniffer print code=1 then code=6, over
+#      and over, each ~2 s apart, with a strobe edge each time. On the matrix
+#      you'd see 1->2 and 3->2 animate alternately.
+#   If nothing toggles here -> wiring / P2A / pin-map problem (not the handshake).
+#
+# Cells kept < 128 so the WAV is a 128-cell (short) image.
+
+# ---- Phase 1: emit code 1 (001) ----
+000 ako 04.001      # accu = 1
+001 p2a 18.001      # D0 <- 1   (Port 2 pin 1)
+002 ako 04.000      # accu = 0
+003 p2a 18.002      # D1 <- 0   (Port 2 pin 2)
+004 p2a 18.003      # D2 <- 0   (Port 2 pin 3)
+
+# toggle strobe (increment cell 100, write its LSB to pin 4)
+005 lda 05.100      # accu = strobe state
+006 add 07.101      # + 1
+007 abs 06.100      # save
+008 p2a 18.004      # STROBE <- LSB   (Port 2 pin 4)
+
+# hold ~2 s so it is watchable
+009 vzg 03.255
+010 vzg 03.255
+011 vzg 03.255
+012 vzg 03.255
+
+# ---- Phase 2: emit code 6 (110) ----
+013 ako 04.000      # accu = 0
+014 p2a 18.001      # D0 <- 0
+015 ako 04.001      # accu = 1
+016 p2a 18.002      # D1 <- 1
+017 p2a 18.003      # D2 <- 1
+
+# toggle strobe again
+018 lda 05.100
+019 add 07.101
+020 abs 06.100
+021 p2a 18.004
+
+# hold ~2 s
+022 vzg 03.255
+023 vzg 03.255
+024 vzg 03.255
+025 vzg 03.255
+
+# loop forever
+026 spu 09.000
+
+# ---- data ----
+100 00.000          # strobe state (toggles 0/1/0/1 via increment)
+101 00.001          # const 1

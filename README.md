@@ -39,6 +39,10 @@ blue base. That lives under [`./matrix/`](./matrix/).
 
 ![The CP1-driven Hanoi solve on a 64×32 RGB LED matrix](./matrix/hanoi_demo.gif)
 
+[![The real rig: a Kosmos CP1 (right) driving the 64×32 panel (left) mid-solve, linked by the four-bit move protocol over jumper wires; the CP2 cassette module loads the program — click to watch on YouTube](./matrix/hanoi-matrix.jpg)](https://youtu.be/CkCNBzWRjq4)
+
+▶ **[Watch the full solve on YouTube](https://youtu.be/CkCNBzWRjq4)**
+
 And to get programs *onto* the CP1 without typing them in, [`./cassette/`](./cassette/)
 holds a small toolchain that assembles a listing and renders it as a **cassette
 WAV** you play into the CP2 module — the 1983 CP1/CP2 FSK tape format,

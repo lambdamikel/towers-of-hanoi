@@ -41,7 +41,7 @@
 006 ako 04.240      # return stack start
 007 abs 06.149      # return stack *
 
-008 ako 04.003      # number of disks (change here for 4..13 disks)
+008 ako 04.006      # number of disks (change here for 4..13 disks)
 009 abs 06.145
 010 ako 04.001      # source peg number = 1
 011 ais 20.146
@@ -165,11 +165,15 @@
 087 lia 19.141
 088 p2a 18.003
 
-# --- 089-092: Toggle strobe (cell 155, LSB), write to Port 2 pin 4 ---
-089 lda 05.155      # accu = strobe state
-090 add 07.150      # +1 (toggles bit 0 each call)
-091 abs 06.155      # write back
-092 p2a 18.004      # write LSB to Port 2 pin 4 (this edge is what Arduino latches)
+# --- 089-092: Toggle strobe as a bounded 0<->1 (NOT an increment) ---
+# CP1 P2A writes "any non-zero -> 1", not the LSB (CONFIRMED on hardware
+# 2026-07-03): an incrementing counter jams the strobe HIGH after the first
+# move and the receiver never sees another edge. strobe := 1 - strobe keeps the
+# written value at exactly 0 or 1.
+089 ako 04.001      # accu = 1
+090 sub 08.155      # accu = 1 - strobe   (strobe is 0 or 1)
+091 abs 06.155      # strobe := 1 - strobe   (clean 0<->1 toggle)
+092 p2a 18.004      # write 0/1 to Port 2 pin 4 (this edge is what the Arduino latches)
 
 # --- 093-096: Wait for BUSY = HIGH (Arduino has latched the command) ---
 093 pie 16.001      # read BUSY

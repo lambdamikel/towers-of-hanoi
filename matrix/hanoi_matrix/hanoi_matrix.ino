@@ -40,7 +40,7 @@
 #define B   A1
 #define C   A2
 #define D   A3
-RGBmatrixPanel matrix(A, B, C, D, CLK, LAT, OE, false, 64);  // 64x32, single buffer
+RGBmatrixPanel matrix(A, B, C, D, CLK, LAT, OE, true, 64);   // 64x32, double-buffered (anti-flicker)
 
 // ---- CP1 link pins (free PORTC pins; 5 V direct) ----
 const uint8_t PIN_D0     = 30;
@@ -50,7 +50,8 @@ const uint8_t PIN_STROBE = 33;
 const uint8_t PIN_BUSY   = 34;
 
 // ---- Puzzle size -- MUST match the CP1 program's disk count (CP1 addr 008) ----
-const uint8_t NUM_DISKS = 5;        // 1..8 render well on 64x32
+const uint8_t NUM_DISKS = 6;        // MUST match CP1 addr 008 (04.006 = 6 disks);
+                                    // double-buffered (swapBuffers) to kill flicker
 
 // ---- Geometry (64 wide x 32 tall) ----
 const int16_t PEG_X[3] = { 11, 32, 53 };
@@ -91,6 +92,7 @@ void drawScene(int8_t floatSize, int16_t floatCx, int16_t floatBottomY) {
     for (uint8_t i = 0; i < stackN[p]; i++)
       drawDiskAt(PEG_X[p], BASE_Y - i * DISK_H, stackArr[p][i]);
   if (floatSize > 0) drawDiskAt(floatCx, floatBottomY, floatSize);  // moving disk
+  matrix.swapBuffers(false);   // present the finished frame atomically -> no flicker/tearing
 }
 
 void buildTower() {

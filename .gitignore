@@ -1,0 +1,6 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Large generated cassette tapes — regenerate with robot/tapes/build-tapes.sh
+robot/tapes/*.wav
